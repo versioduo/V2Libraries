@@ -28,7 +28,7 @@ namespace V2MIDI {
     };
 
     Port() = delete;
-    constexpr Port(uint8_t index, uint32_t sysexSize) : _index{index}, _sysexSize{sysexSize} {}
+    constexpr Port(uint8_t index, uint32_t sysexSize) : _portIndex{index}, _sysexSize{sysexSize} {}
 
     void begin() {
       // Buffer to store an incoming and outgoing SysEx messages. The buffer needs
@@ -131,7 +131,7 @@ namespace V2MIDI {
       if (_sysex.out.length > 0)
         return false;
 
-      packet->setPort(_index);
+      packet->setPort(_portIndex);
       if (!handleSend(packet))
         return false;
 
@@ -221,28 +221,28 @@ namespace V2MIDI {
       const uint32_t remain = _sysex.out.length - _sysex.out.position;
       switch (remain) {
         case 1:
-          _packet._data[0] = (_index << 4) | static_cast<uint8_t>(Packet::CodeIndex::SystemExclusiveEnd1);
+          _packet._data[0] = (_portIndex << 4) | static_cast<uint8_t>(Packet::CodeIndex::SystemExclusiveEnd1);
           _packet._data[1] = _sysex.out.buffer[_sysex.out.position];
           _packet._data[2] = 0;
           _packet._data[3] = 0;
           break;
 
         case 2:
-          _packet._data[0] = (_index << 4) | static_cast<uint8_t>(Packet::CodeIndex::SystemExclusiveEnd2);
+          _packet._data[0] = (_portIndex << 4) | static_cast<uint8_t>(Packet::CodeIndex::SystemExclusiveEnd2);
           _packet._data[1] = _sysex.out.buffer[_sysex.out.position];
           _packet._data[2] = _sysex.out.buffer[_sysex.out.position + 1];
           _packet._data[3] = 0;
           break;
 
         case 3:
-          _packet._data[0] = (_index << 4) | static_cast<uint8_t>(Packet::CodeIndex::SystemExclusiveEnd3);
+          _packet._data[0] = (_portIndex << 4) | static_cast<uint8_t>(Packet::CodeIndex::SystemExclusiveEnd3);
           _packet._data[1] = _sysex.out.buffer[_sysex.out.position];
           _packet._data[2] = _sysex.out.buffer[_sysex.out.position + 1];
           _packet._data[3] = _sysex.out.buffer[_sysex.out.position + 2];
           break;
 
         default:
-          _packet._data[0] = (_index << 4) | static_cast<uint8_t>(Packet::CodeIndex::SystemExclusiveStart);
+          _packet._data[0] = (_portIndex << 4) | static_cast<uint8_t>(Packet::CodeIndex::SystemExclusiveStart);
           _packet._data[1] = _sysex.out.buffer[_sysex.out.position];
           _packet._data[2] = _sysex.out.buffer[_sysex.out.position + 1];
           _packet._data[3] = _sysex.out.buffer[_sysex.out.position + 2];
@@ -272,7 +272,7 @@ namespace V2MIDI {
     }
 
   protected:
-    const uint8_t  _index;
+    const uint8_t  _portIndex;
     const uint32_t _sysexSize;
 
     friend class Packet;
