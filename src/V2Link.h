@@ -14,7 +14,11 @@ public:
   //   4 bit: message type
   class Packet : public V2MIDI::Transport {
   public:
-    enum class Type : uint8_t { MIDI, Pulse };
+    enum class Type : uint8_t {
+      MIDI,
+      Pulse,
+      Number,
+    };
 
     // Solenoid pulse:
     //   12 bit: watts
@@ -89,7 +93,7 @@ public:
         _data[3] = map & 0xff;
       }
       {
-        float seconds = pulse->seconds;
+        float seconds{pulse->seconds};
         if (seconds > 100.f)
           seconds = 100;
 
@@ -98,6 +102,19 @@ public:
         _data[2] |= map >> 8;
         _data[4] = map & 0xff;
       }
+    }
+
+    auto getNumber() -> uint32_t const {
+      uint32_t number{};
+      auto     bytes{(uint8_t*)&number};
+      std::copy(_data + 1, _data + 4, bytes);
+      return number;
+    }
+
+    auto setNumber(uint32_t number) -> void {
+      _data[0] = (uint8_t)Packet::Type::Number;
+      auto bytes{(uint8_t*)&number};
+      std::copy(bytes, bytes + 3, _data + 1);
     }
 
   private:
