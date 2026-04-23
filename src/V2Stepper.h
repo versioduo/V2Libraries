@@ -48,7 +48,7 @@ namespace V2Stepper {
 
       // -1..1, a higher value makes StallGuard less sensitive.
       struct {
-        // Speed for home movement in fillsteps per second.
+        // Speed for home movement in fullsteps per second.
         uint16_t speed;
 
         // Threshold for stall detection -1..1.
