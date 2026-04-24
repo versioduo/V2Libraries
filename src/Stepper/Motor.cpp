@@ -280,7 +280,7 @@ void V2Stepper::Motor::setPosition(float position, float speedFraction, void (*h
       _timer->disable();
 
       // Do we need to reverse the direction?
-      if (_mode == Mode::Position && _reverse != _position.getReverse(target)) {
+      if (_reverse != _position.getReverse(target)) {
         stopPositioning();
         _queue = {
           .mode{Mode::Position},
@@ -290,6 +290,7 @@ void V2Stepper::Motor::setPosition(float position, float speedFraction, void (*h
         break;
       }
 
+      _queue           = {};
       _position.target = target;
       _speed.target    = getMaxSpeed(speedFraction);
       calculateDecelerationSteps();
