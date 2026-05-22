@@ -29,6 +29,12 @@ void V2Base::Memory::Firmware::reboot() {
   NVIC_SystemReset();
 }
 
+void V2Base::Memory::Firmware::bootloader() {
+  // UF2 DBL_TAP_PTR = DBL_TAP_MAGIC
+  *(uint32_t*)(HSRAM_ADDR + HSRAM_SIZE - 4) = 0xf01669ef;
+  NVIC_SystemReset();
+}
+
 void V2Base::Memory::Firmware::Secondary::writeBlock(uint32_t offset, const uint32_t* data) {
   const uint32_t start = getStart() + Firmware::getStart();
   if (memcmp((const uint8_t*)start + offset, data, Flash::getBlockSize()) == 0)

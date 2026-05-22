@@ -16,6 +16,8 @@ namespace V2Base::Memory {
 
     static void reboot();
 
+    static void bootloader();
+
     class Secondary {
     public:
       // The secondary flash bank, mapped to the second half of the flash area.

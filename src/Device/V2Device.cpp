@@ -594,6 +594,11 @@ void V2Device::handleSystemExclusive(V2MIDI::Transport* transport, const uint8_t
     return;
   }
 
+  if (jsonDevice["method"] == "bootloader") {
+    V2Base::Memory::Firmware::bootloader();
+    return;
+  }
+
   if (jsonDevice["method"] == "rebootWithPorts") {
     bootData.usb.ports.enableAccess = true;
     V2Base::Memory::Firmware::reboot();
