@@ -186,7 +186,7 @@ public:
       if (_uart->availableForWrite() < 5)
         return false;
 
-      uint8_t header = address << 4;
+      auto header{uint8_t(address << 4)};
       header |= packet->_data[0] & 0x0f;
       _uart->write(header);
       _uart->write(packet->_data + 1, 4);
@@ -202,7 +202,7 @@ public:
     bool send(V2MIDI::Packet* midi) {
       Packet packet;
       packet._data[0] = (uint8_t)Packet::Type::MIDI;
-      memcpy(packet._data + 1, midi->data(), 4);
+      std::copy(midi->data(), midi->data() + 4, packet._data + 1);
       return send(midi->getPort(), &packet);
     }
 
@@ -229,7 +229,7 @@ public:
     }
   };
 
-  constexpr V2Link(Port* port_, Port* socket_) : plug(port_), socket(socket_) {}
+  constexpr V2Link(Port* port, Port* socket, Port* socketNode = nullptr) : plug(port), socket(socket), socketNode(socketNode) {}
 
   void begin() {
     if (plug)
@@ -237,6 +237,9 @@ public:
 
     if (socket)
       socket->begin();
+
+    if (socketNode)
+      socketNode->begin();
   }
 
   void loop() {
@@ -269,6 +272,13 @@ public:
 
       socket->powerDown();
     }
+
+    if (socketNode) {
+      if (socketNode->receive(&packet))
+        receiveSocketNode(&packet);
+
+      socketNode->powerDown();
+    }
   }
 
   bool idle() const {
@@ -278,13 +288,18 @@ public:
     if (socket && !socket->idle())
       return false;
 
+    if (socketNode && !socketNode->idle())
+      return false;
+
     return true;
   }
 
   Port* plug{};
   Port* socket{};
+  Port* socketNode{};
 
 protected:
   virtual void receivePlug(Packet* packet) {}
   virtual void receiveSocket(Packet* packet) {}
+  virtual void receiveSocketNode(Packet* packet) {}
 };

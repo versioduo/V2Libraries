@@ -484,6 +484,12 @@ void V2Device::sendReply(V2MIDI::Transport* transport) {
         jsonSocket["input"]   = link->socket->statistics.input;
         jsonSocket["output"]  = link->socket->statistics.output;
       }
+
+      if (link->socketNode) {
+        JsonObject jsonSocket = jsonLink["socketNode"].to<JsonObject>();
+        jsonSocket["input"]   = link->socketNode->statistics.input;
+        jsonSocket["output"]  = link->socketNode->statistics.output;
+      }
     }
 
     if (serial) {
