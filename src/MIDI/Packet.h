@@ -134,6 +134,10 @@ namespace V2MIDI {
       return _data[2];
     }
 
+    auto data() const -> const uint8_t* {
+      return _data;
+    }
+
     auto data() -> uint8_t* {
       return _data;
     }

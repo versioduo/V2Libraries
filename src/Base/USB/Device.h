@@ -63,7 +63,7 @@ namespace V2Base {
       _midi.interface.setCableName(port, name);
     }
 
-    bool send(uint8_t packet[4]);
+    bool send(const uint8_t packet[4]);
     bool receive(uint8_t packet[4]);
 
   private:

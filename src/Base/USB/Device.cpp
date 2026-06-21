@@ -20,7 +20,7 @@ void V2Base::USBDevice::readSerial(char* serial) {
     sprintf(serial + (i * 2), "%02X", id[i]);
 }
 
-bool V2Base::USBDevice::send(uint8_t packet[4]) {
+bool V2Base::USBDevice::send(const uint8_t packet[4]) {
   _device.usec = micros();
   if (!connected())
     return false;

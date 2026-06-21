@@ -1,4 +1,4 @@
-// V2 Link devices are full-duplex RS485 serial lines, the baud rate is 3 Mhz.
+// V2 Link devices are full-duplex RS422 serial lines, the baud rate is 3 Mhz.
 //
 // The Plug connects the device to the parent device, the socket connects
 // the children devices. Up to 16 devices can be daisy-chained.
@@ -10,9 +10,9 @@
 class V2Link {
 public:
   // Header:
-  //   4 bit: target/child address,
+  //   4 bit: target/child address
   //   4 bit: message type
-  class Packet : public V2MIDI::Transport {
+  class Packet {
   public:
     enum class Type : uint8_t {
       MIDI,
@@ -33,26 +33,25 @@ public:
       bool    fadeOut;
     };
 
-    Type getType() const {
+    auto getType() const -> Type {
       return static_cast<Type>(_data[0] & 0x0f);
     }
 
-    uint8_t getAddress() const {
+    auto getAddress() const -> uint8_t {
       return _data[0] >> 4;
     }
 
-    bool receive(V2MIDI::Packet* midi) {
+    auto copyTo(V2MIDI::Packet& midi) const -> bool {
       if (getType() != Packet::Type::MIDI)
         return false;
 
-      std::copy(_data + 1, _data + 5, midi->data());
+      std::copy(_data + 1, _data + 5, midi.data());
       return true;
     }
 
-    bool send(V2MIDI::Packet* midi) {
+    auto copyFrom(const V2MIDI::Packet& midi) {
       _data[0] = uint8_t(Packet::Type::MIDI);
-      std::copy(midi->data(), midi->data() + 4, _data + 1);
-      return true;
+      std::copy(midi.data(), midi.data() + 4, _data + 1);
     }
 
     void getPulse(Pulse* pulse) {
@@ -195,11 +194,11 @@ public:
       return true;
     }
 
-    bool receive(V2MIDI::Packet* midi) {
+    bool receive(V2MIDI::Packet* midi) override {
       return false;
     }
 
-    bool send(V2MIDI::Packet* midi) {
+    bool send(const V2MIDI::Packet* midi) override {
       Packet packet;
       packet._data[0] = (uint8_t)Packet::Type::MIDI;
       std::copy(midi->data(), midi->data() + 4, packet._data + 1);

@@ -26,7 +26,7 @@ namespace V2MIDI {
       _data1     = {};
     }
 
-    auto send(Packet* midi) -> bool {
+    auto send(const Packet* midi) -> bool override {
       switch (midi->getType()) {
         case Packet::Status::NoteOn:
         case Packet::Status::NoteOff:
@@ -65,7 +65,7 @@ namespace V2MIDI {
       return false;
     }
 
-    auto receive(Packet* midi) -> bool {
+    auto receive(Packet* midi) -> bool override {
       if (_uart->available() == 0)
         return false;
 
