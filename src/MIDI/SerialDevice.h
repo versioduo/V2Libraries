@@ -26,15 +26,15 @@ namespace V2MIDI {
       _data1     = {};
     }
 
-    auto send(const Packet* midi) -> bool override {
-      switch (midi->getType()) {
+    auto send(const Packet& midi) -> bool override {
+      switch (midi.type()) {
         case Packet::Status::NoteOn:
         case Packet::Status::NoteOff:
         case Packet::Status::Aftertouch:
         case Packet::Status::ControlChange:
         case Packet::Status::PitchBend:
         case Packet::Status::SystemSongPosition:
-          return _uart->write(midi->_data + 1, 3);
+          return _uart->write(midi._data + 1, 3);
           statistics.output++;
           return true;
 
@@ -42,7 +42,7 @@ namespace V2MIDI {
         case Packet::Status::AftertouchChannel:
         case Packet::Status::SystemTimeCodeQuarterFrame:
         case Packet::Status::SystemSongSelect:
-          return _uart->write(midi->_data + 1, 2);
+          return _uart->write(midi._data + 1, 2);
           statistics.output++;
           return true;
 
@@ -53,7 +53,7 @@ namespace V2MIDI {
         case Packet::Status::SystemStop:
         case Packet::Status::SystemActiveSensing:
         case Packet::Status::SystemReset:
-          return _uart->write(midi->_data[1]);
+          return _uart->write(midi._data[1]);
           statistics.output++;
           return true;
 
@@ -65,7 +65,7 @@ namespace V2MIDI {
       return false;
     }
 
-    auto receive(Packet* midi) -> bool override {
+    auto receive(Packet& midi) -> bool override {
       if (_uart->available() == 0)
         return false;
 
@@ -81,7 +81,7 @@ namespace V2MIDI {
           case (uint8_t)Packet::Status::SystemStop:
           case (uint8_t)Packet::Status::SystemActiveSensing:
           case (uint8_t)Packet::Status::SystemReset:
-            midi->setSystem(Packet::Status(b), 0, 0);
+            midi.setSystem(Packet::Status(b), 0, 0);
             statistics.input++;
             return true;
         }
@@ -94,12 +94,12 @@ namespace V2MIDI {
           return false;
 
         case State::Status: {
-          _status  = Packet::getStatus(b);
+          _status  = Packet::status(b);
           _channel = b & 0x0f;
           switch (_status) {
             // Single byte message, the Real-Time messages are already handled.
             case Packet::Status::SystemTuneRequest:
-              midi->set(_status, 0, 0, 0);
+              midi.set(_status, 0, 0, 0);
               _state = State::Idle;
               statistics.input++;
               return true;
@@ -131,7 +131,7 @@ namespace V2MIDI {
             case Packet::Status::AftertouchChannel:
             case Packet::Status::SystemTimeCodeQuarterFrame:
             case Packet::Status::SystemSongSelect:
-              midi->set(_status, _channel, b, 0);
+              midi.set(_status, _channel, b, 0);
               _state = State::Idle;
               statistics.input++;
               return true;
@@ -150,7 +150,7 @@ namespace V2MIDI {
           break;
 
         case State::Data2:
-          midi->set(_status, _channel, _data1, b);
+          midi.set(_status, _channel, _data1, b);
           _state = State::Idle;
           statistics.input++;
           return true;

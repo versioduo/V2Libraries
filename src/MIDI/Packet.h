@@ -57,25 +57,25 @@ namespace V2MIDI {
     };
 
     // Set virtual port/wire in the packet. Port 1 == 0.
-    auto getPort() const -> uint8_t {
+    auto port() const -> uint8_t {
       return _data[0] >> 4;
     }
 
-    auto setPort(uint8_t port) {
+    auto port(uint8_t port) {
       _data[0] &= 0x0f;
       _data[0] |= port << 4;
     }
 
-    auto getChannel() const -> uint8_t {
+    auto channel() const -> uint8_t {
       return _data[1] & 0x0f;
     }
 
-    auto setChannel(uint8_t channel) {
+    auto channel(uint8_t channel) {
       _data[1] &= 0xf0;
       _data[1] |= channel;
     }
 
-    static auto getStatus(uint8_t b) -> Status {
+    static auto status(uint8_t b) -> Status {
       // Remove channel number.
       if (auto status{Status(b & 0xf0)}; status != Status::System)
         return status;
@@ -84,8 +84,8 @@ namespace V2MIDI {
       return Status(b);
     }
 
-    auto getType() const -> Status {
-      return getStatus(_data[1]);
+    auto type() const -> Status {
+      return status(_data[1]);
     }
 
     auto getNote() const -> uint8_t {
@@ -143,7 +143,7 @@ namespace V2MIDI {
     }
 
     auto set(uint8_t data0, uint8_t data1 = 0, uint8_t data2 = 0) -> Packet* {
-      switch (getStatus(data0)) {
+      switch (status(data0)) {
         case Status::NoteOff:
           _data[0] |= uint8_t(CodeIndex::NoteOff);
           break;

@@ -48,43 +48,43 @@ namespace V2MIDI {
       if (!storeSystemExclusive(packet))
         return;
 
-      if (packet->getType() != Packet::Status::SystemExclusive)
+      if (packet->type() != Packet::Status::SystemExclusive)
         handlePacket(packet);
 
-      switch (packet->getType()) {
+      switch (packet->type()) {
         case Packet::Status::NoteOn:
           _statistics.input.note++;
-          handleNote(packet->getChannel(), packet->getNote(), packet->getNoteVelocity());
+          handleNote(packet->channel(), packet->getNote(), packet->getNoteVelocity());
           break;
 
         case Packet::Status::NoteOff:
           _statistics.input.noteOff++;
-          handleNoteOff(packet->getChannel(), packet->getNote(), packet->getNoteVelocity());
+          handleNoteOff(packet->channel(), packet->getNote(), packet->getNoteVelocity());
           break;
 
         case Packet::Status::Aftertouch:
           _statistics.input.aftertouch++;
-          handleAftertouch(packet->getChannel(), packet->getAftertouchNote(), packet->getAftertouch());
+          handleAftertouch(packet->channel(), packet->getAftertouchNote(), packet->getAftertouch());
           break;
 
         case Packet::Status::ControlChange:
           _statistics.input.control++;
-          handleControlChange(packet->getChannel(), packet->getController(), packet->getControllerValue());
+          handleControlChange(packet->channel(), packet->getController(), packet->getControllerValue());
           break;
 
         case Packet::Status::ProgramChange:
           _statistics.input.program++;
-          handleProgramChange(packet->getChannel(), packet->getProgram());
+          handleProgramChange(packet->channel(), packet->getProgram());
           break;
 
         case Packet::Status::AftertouchChannel:
           _statistics.input.aftertouchChannel++;
-          handleAftertouchChannel(packet->getChannel(), packet->getAftertouchChannel());
+          handleAftertouchChannel(packet->channel(), packet->getAftertouchChannel());
           break;
 
         case Packet::Status::PitchBend:
           _statistics.input.pitchbend++;
-          handlePitchBend(packet->getChannel(), packet->getPitchBend());
+          handlePitchBend(packet->channel(), packet->getPitchBend());
           break;
 
         case Packet::Status::SystemSongPosition:
@@ -131,13 +131,13 @@ namespace V2MIDI {
       if (_sysex.out.length > 0)
         return false;
 
-      packet->setPort(_portIndex);
+      packet->port(_portIndex);
       if (!handleSend(packet))
         return false;
 
       _statistics.output.packet++;
 
-      switch (packet->getType()) {
+      switch (packet->type()) {
         case Packet::Status::NoteOn:
           _statistics.output.note++;
           break;
@@ -254,7 +254,7 @@ namespace V2MIDI {
           return -1;
 
       } else {
-        if (!_sysex.out.transport->send(&_packet))
+        if (!_sysex.out.transport->send(_packet))
           return -1;
       }
 

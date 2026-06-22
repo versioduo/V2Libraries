@@ -7,12 +7,12 @@
 namespace V2MIDI {
   class USBDevice : public Transport, public V2Base::USBDevice {
   public:
-    auto send(const Packet* midi) -> bool override {
-      return V2Base::USBDevice::send(midi->_data);
+    auto send(const Packet& midi) -> bool override {
+      return V2Base::USBDevice::send(midi._data);
     }
 
-    auto receive(Packet* midi) -> bool override {
-      return V2Base::USBDevice::receive(midi->_data);
+    auto receive(Packet& midi) -> bool override {
+      return V2Base::USBDevice::receive(midi._data);
     }
   };
 }

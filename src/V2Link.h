@@ -9,9 +9,6 @@
 
 class V2Link {
 public:
-  // Header:
-  //   4 bit: target/child address
-  //   4 bit: message type
   class Packet {
   public:
     enum class Type : uint8_t {
@@ -21,6 +18,7 @@ public:
     };
 
     // Solenoid pulse:
+    //    4 bit: port
     //   12 bit: watts
     //   12 bit: seconds
     //    1 bit: fade in
@@ -33,93 +31,80 @@ public:
       bool    fadeOut;
     };
 
-    auto getType() const -> Type {
-      return static_cast<Type>(_data[0] & 0x0f);
-    }
+    // LE bit order: [address | type]
+    Type    type : 4 {};
+    uint8_t address : 4 {};
+    union {
+      V2MIDI::Packet         midi;
+      std::array<uint8_t, 4> data{};
+    };
 
-    auto getAddress() const -> uint8_t {
-      return _data[0] >> 4;
-    }
+    constexpr Packet() = default;
+    constexpr Packet(uint8_t address, const V2MIDI::Packet& midi) : address(address), type(Packet::Type::MIDI), midi(midi) {}
 
-    auto copyTo(V2MIDI::Packet& midi) const -> bool {
-      if (getType() != Packet::Type::MIDI)
-        return false;
-
-      std::copy(_data + 1, _data + 5, midi.data());
-      return true;
-    }
-
-    auto copyFrom(const V2MIDI::Packet& midi) {
-      _data[0] = uint8_t(Packet::Type::MIDI);
-      std::copy(midi.data(), midi.data() + 4, _data + 1);
-    }
-
-    void getPulse(Pulse* pulse) {
-      pulse->port    = _data[1] & 0x0f;
-      pulse->fadeIn  = _data[1] & (1 << 4);
-      pulse->fadeOut = _data[1] & (1 << 5);
+    auto getPulse(Pulse& pulse) const {
+      pulse.port    = data[0] & 0x0f;
+      pulse.fadeIn  = data[0] & (1 << 4);
+      pulse.fadeOut = data[0] & (1 << 5);
 
       {
-        auto map{uint16_t((_data[2] >> 4) << 8)};
-        map |= _data[3];
+        auto map{uint16_t((data[1] >> 4) << 8)};
+        map |= data[2];
         auto fraction{float(map) / 4095.f};
-        pulse->watts = 100.f * powf(fraction, 3);
+        pulse.watts = 100.f * powf(fraction, 3);
       }
       {
-        auto map{uint16_t((_data[2] & 0x0f) << 8)};
-        map |= _data[4];
-        const float fraction = float(map) / 4095.f;
-        pulse->seconds       = 100.f * powf(fraction, 8);
+        auto map{uint16_t((data[1] & 0x0f) << 8)};
+        map |= data[3];
+        auto fraction{float(map) / 4095.f};
+        pulse.seconds = 100.f * powf(fraction, 8);
       }
     }
 
-    void setPulse(const Packet::Pulse* pulse) {
-      _data[0] = (uint8_t)Packet::Type::Pulse;
-      _data[1] = pulse->port & 0x0f;
-      if (pulse->fadeIn)
-        _data[1] |= 1 << 4;
-      if (pulse->fadeOut)
-        _data[1] |= 1 << 5;
+    auto setPulse(const Packet::Pulse& pulse) {
+      type    = Packet::Type::Pulse;
+      data[0] = pulse.port & 0x0f;
+      if (pulse.fadeIn)
+        data[0] |= 1 << 4;
+      if (pulse.fadeOut)
+        data[0] |= 1 << 5;
 
       {
-        auto watts{pulse->watts};
+        auto watts{pulse.watts};
         if (watts > 100.f)
           watts = 100;
 
         auto fraction{watts / 100.f};
         auto map{uint16_t(powf(fraction, 1.f / 3.f) * 4095.f)};
-        _data[2] = (map >> 8) << 4;
-        _data[3] = map & 0xff;
+        data[1] = (map >> 8) << 4;
+        data[2] = map & 0xff;
       }
       {
-        float seconds{pulse->seconds};
+        float seconds{pulse.seconds};
         if (seconds > 100.f)
           seconds = 100;
 
         auto fraction{seconds / 100.f};
         auto map{uint16_t(powf(fraction, 1.f / 8.f) * 4095.f)};
-        _data[2] |= map >> 8;
-        _data[4] = map & 0xff;
+        data[1] |= map >> 8;
+        data[3] = map & 0xff;
       }
     }
 
-    auto getNumber() -> uint32_t const {
+    auto number() const -> uint32_t {
       uint32_t number{};
       auto     bytes{(uint8_t*)&number};
-      std::copy(_data + 1, _data + 4, bytes);
+      std::copy(data.begin(), data.end(), bytes);
       return number;
     }
 
-    auto setNumber(uint32_t number) -> void {
-      _data[0] = (uint8_t)Packet::Type::Number;
+    auto number(uint32_t number) -> void {
+      type = Packet::Type::Number;
       auto bytes{(uint8_t*)&number};
-      std::copy(bytes, bytes + 3, _data + 1);
+      std::copy(bytes, bytes + 4, data.begin());
     }
-
-  private:
-    friend class V2Link;
-    uint8_t _data[5];
   };
+  static_assert(sizeof(Packet) == 5);
 
   class Port : public V2MIDI::Transport {
   public:
@@ -130,7 +115,7 @@ public:
 
     constexpr Port(Uart* uart, uint8_t pinTx = 0) : _uart(uart), _pinTx(pinTx) {}
 
-    void begin() {
+    auto begin() {
       _uart->begin(3000000);
       _uart->setTimeout(1);
 
@@ -140,11 +125,11 @@ public:
       }
     }
 
-    bool idle() const {
+    auto idle() const {
       return !_active;
     }
 
-    bool receive(Packet* packet) {
+    auto receive(Packet& p) -> bool {
       if (_uart->available() == 0)
         return false;
 
@@ -166,13 +151,13 @@ public:
       }
 
       _timeoutUsec = 0;
-      _uart->readBytes(packet->_data, 5);
+      _uart->readBytes((uint8_t*)&p, 5);
       statistics.input++;
 
       return true;
     }
 
-    bool send(uint8_t address, Packet* packet) {
+    auto send(const Packet& p) -> bool {
       if (!_active) {
         if (_pinTx > 0)
           digitalWrite(_pinTx, HIGH);
@@ -185,35 +170,22 @@ public:
       if (_uart->availableForWrite() < 5)
         return false;
 
-      auto header{uint8_t(address << 4)};
-      header |= packet->_data[0] & 0x0f;
-      _uart->write(header);
-      _uart->write(packet->_data + 1, 4);
+      _uart->write((const uint8_t*)&p, 5);
       statistics.output++;
 
       return true;
     }
 
-    bool receive(V2MIDI::Packet* midi) override {
+    auto receive(V2MIDI::Packet& midi) -> bool override {
       return false;
     }
 
-    bool send(const V2MIDI::Packet* midi) override {
-      Packet packet;
-      packet._data[0] = (uint8_t)Packet::Type::MIDI;
-      std::copy(midi->data(), midi->data() + 4, packet._data + 1);
-      return send(midi->getPort(), &packet);
+    // Used for replies during V2Device dispatch, can only send to address 0.
+    auto send(const V2MIDI::Packet& midi) -> bool override {
+      return send(Packet(0, midi));
     }
 
-  private:
-    friend class V2Link;
-    Uart*         _uart;
-    const uint8_t _pinTx;
-    bool          _active{};
-    unsigned long _timeoutUsec{};
-    unsigned long _usec{};
-
-    void powerDown() {
+    auto powerDown() {
       if (!_active)
         return;
 
@@ -226,11 +198,18 @@ public:
 
       _active = false;
     }
+
+  private:
+    Uart*         _uart;
+    const uint8_t _pinTx;
+    bool          _active{};
+    unsigned long _timeoutUsec{};
+    unsigned long _usec{};
   };
 
   constexpr V2Link(Port* port, Port* socket, Port* socketNode = nullptr) : plug(port), socket(socket), socketNode(socketNode) {}
 
-  void begin() {
+  auto begin() {
     if (plug)
       plug->begin();
 
@@ -241,18 +220,17 @@ public:
       socketNode->begin();
   }
 
-  void loop() {
-    Packet packet;
-
+  auto loop() {
     if (plug) {
-      if (plug->receive(&packet)) {
-        if (packet.getAddress() > 0) {
+      if (plug->receive(_link)) {
+        if (_link.address > 0) {
           // Forward message from a parent device to a child device.
-          if (socket)
-            socket->send(packet.getAddress() - 1, &packet);
-
+          if (socket) {
+            _link.address--;
+            socket->send(_link);
+          }
         } else {
-          receivePlug(&packet);
+          receivePlug(_link);
         }
       }
 
@@ -260,27 +238,27 @@ public:
     }
 
     if (socket) {
-      if (socket->receive(&packet)) {
-        // Forward message from a child device towards the parent device, stop after
-        // too many hops.
-        if (plug && packet.getAddress() < 0x0f)
-          plug->send(packet.getAddress() + 1, &packet);
-
-        receiveSocket(&packet);
+      if (socket->receive(_link)) {
+        // Forward message from a child device towards the parent device, stop after too many hops.
+        if (plug && _link.address < 0x0f) {
+          _link.address++;
+          plug->send(_link);
+          receiveSocket(_link);
+        }
       }
 
       socket->powerDown();
     }
 
     if (socketNode) {
-      if (socketNode->receive(&packet))
-        receiveSocketNode(&packet);
+      if (socketNode->receive(_link))
+        receiveSocketNode(_link);
 
       socketNode->powerDown();
     }
   }
 
-  bool idle() const {
+  auto idle() const -> bool {
     if (plug && !plug->idle())
       return false;
 
@@ -297,8 +275,10 @@ public:
   Port* socket{};
   Port* socketNode{};
 
-protected:
-  virtual void receivePlug(Packet* packet) {}
-  virtual void receiveSocket(Packet* packet) {}
-  virtual void receiveSocketNode(Packet* packet) {}
+private:
+  Packet _link;
+
+  virtual auto receivePlug(Packet& packet) -> void {}
+  virtual auto receiveSocket(Packet& packet) -> void {}
+  virtual auto receiveSocketNode(Packet& packet) -> void {}
 };
