@@ -24,11 +24,11 @@ public:
     //    1 bit: fade in
     //    1 bit: fade out
     struct Pulse {
-      uint8_t port;
-      float   watts;
-      float   seconds;
-      bool    fadeIn;
-      bool    fadeOut;
+      uint8_t port{};
+      float   watts{};
+      float   seconds{};
+      bool    fadeIn{};
+      bool    fadeOut{};
     };
 
     // LE bit order: [address | type]
@@ -200,7 +200,7 @@ public:
     }
 
   private:
-    Uart*         _uart;
+    Uart*         _uart{};
     const uint8_t _pinTx;
     bool          _active{};
     unsigned long _timeoutUsec{};
@@ -240,9 +240,10 @@ public:
     if (socket) {
       if (socket->receive(_link)) {
         // Forward message from a child device towards the parent device, stop after too many hops.
-        if (plug && _link.address < 0x0f) {
+        if (_link.address < 0x0f) {
           _link.address++;
-          plug->send(_link);
+          if (plug)
+            plug->send(_link);
           receiveSocket(_link);
         }
       }

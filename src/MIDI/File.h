@@ -195,12 +195,12 @@ namespace V2MIDI::File {
   public:
     enum class State { Empty, Loaded, Play, Stop };
 
-    constexpr Tracks() {}
-    constexpr Tracks(const uint8_t* data = NULL) {
+    Tracks() = default;
+    Tracks(const uint8_t* data = NULL) {
       load(data);
     }
 
-    constexpr bool load(const uint8_t* data = NULL) {
+    bool load(const uint8_t* data = NULL) {
       if (!data) {
         if (_state != State::Empty) {
           _state = State::Empty;

@@ -7,7 +7,7 @@ namespace V2MIDI {
   public:
     // USB MIDI packet - every packet is 4 bytes long.
     // 1. header (4 bits virtual port/wire number + 4 bits code index number)
-    // 2. status (7th bit set + 3 bits type + 4 bits channel/system number)
+    // 2. status (7th bit set + 3 bits type + 4 bits channel / system number)
     // 3. data byte 1 (7 bit)
     // 4. data byte 2 (7 bit)
     enum class CodeIndex : uint8_t {
@@ -43,7 +43,7 @@ namespace V2MIDI {
       // 'System' messages are device global, the channel number
       // indentifies the type of system message.
       SystemExclusive            = System | 0,  // [stream of 7-bit bytes terminated with 'ExclusiveEnd']
-      SystemTimeCodeQuarterFrame = System | 1,  // [4 bits of timecode fragment]
+      SystemTimeCodeQuarterFrame = System | 1,  // [4 bits of timecodeIndex fragment]
       SystemSongPosition         = System | 2,  // [value LSB, value MSB]
       SystemSongSelect           = System | 3,  // [song]
       SystemTuneRequest          = System | 6,  // n/a
@@ -56,23 +56,18 @@ namespace V2MIDI {
       SystemReset                = System | 15  // n/a
     };
 
-    // Set virtual port/wire in the packet. Port 1 == 0.
-    auto port() const -> uint8_t {
-      return _data[0] >> 4;
-    }
-
-    auto port(uint8_t port) {
-      _data[0] &= 0x0f;
-      _data[0] |= port << 4;
-    }
+    // LE bit order: [port | codeIndex]
+    CodeIndex              codeIndex : 4 {};
+    uint8_t                port : 4 {};
+    std::array<uint8_t, 3> data{};
 
     auto channel() const -> uint8_t {
-      return _data[1] & 0x0f;
+      return data[0] & 0x0f;
     }
 
     auto channel(uint8_t channel) {
-      _data[1] &= 0xf0;
-      _data[1] |= channel;
+      data[0] &= 0xf0;
+      data[0] |= channel;
     }
 
     static auto status(uint8_t b) -> Status {
@@ -85,100 +80,92 @@ namespace V2MIDI {
     }
 
     auto type() const -> Status {
-      return status(_data[1]);
+      return status(data[0]);
     }
 
     auto getNote() const -> uint8_t {
-      return _data[2];
+      return data[1];
     }
 
     auto getNoteVelocity() const -> uint8_t {
-      return _data[3];
+      return data[2];
     }
 
     auto getAftertouchNote() const -> uint8_t {
-      return _data[2];
+      return data[1];
     }
 
     auto getAftertouch() const -> uint8_t {
-      return _data[3];
+      return data[2];
     }
 
     auto getController() const -> uint8_t {
-      return _data[2];
+      return data[1];
     }
 
     auto getControllerValue() const {
-      return _data[3];
+      return data[2];
     }
 
     auto getProgram() const -> uint8_t {
-      return _data[2];
+      return data[1];
     }
 
     auto getAftertouchChannel() const -> uint8_t {
-      return _data[2];
+      return data[1];
     }
 
     auto getPitchBend() const -> uint16_t {
       // 14 bit – 8192..8191.
-      auto value{int16_t(_data[3] << 7 | _data[2])};
+      auto value{int16_t(data[2] << 7 | data[1])};
       return value - 8192;
     }
 
     auto getSongPosition() const -> uint16_t {
-      return _data[3] << 7 | _data[2];
+      return data[2] << 7 | data[1];
     }
 
     auto getSongSelect() const -> uint16_t {
-      return _data[2];
-    }
-
-    auto data() const -> const uint8_t* {
-      return _data;
-    }
-
-    auto data() -> uint8_t* {
-      return _data;
+      return data[1];
     }
 
     auto set(uint8_t data0, uint8_t data1 = 0, uint8_t data2 = 0) -> Packet* {
       switch (status(data0)) {
         case Status::NoteOff:
-          _data[0] |= uint8_t(CodeIndex::NoteOff);
+          codeIndex = CodeIndex::NoteOff;
           break;
 
         case Status::NoteOn:
-          _data[0] |= uint8_t(CodeIndex::NoteOn);
+          codeIndex = CodeIndex::NoteOn;
           break;
 
         case Status::Aftertouch:
-          _data[0] |= uint8_t(CodeIndex::Aftertouch);
+          codeIndex = CodeIndex::Aftertouch;
           break;
 
         case Status::ControlChange:
-          _data[0] |= uint8_t(CodeIndex::ControlChange);
+          codeIndex = CodeIndex::ControlChange;
           break;
 
         case Status::ProgramChange:
-          _data[0] |= uint8_t(CodeIndex::ProgramChange);
+          codeIndex = CodeIndex::ProgramChange;
           break;
 
         case Status::AftertouchChannel:
-          _data[0] |= uint8_t(CodeIndex::AftertouchChannel);
+          codeIndex = CodeIndex::AftertouchChannel;
           break;
 
         case Status::PitchBend:
-          _data[0] |= uint8_t(CodeIndex::PitchBend);
+          codeIndex = CodeIndex::PitchBend;
           break;
 
         case Status::SystemSongSelect:
         case Status::SystemTimeCodeQuarterFrame:
-          _data[0] |= uint8_t(CodeIndex::SystemCommon2);
+          codeIndex = CodeIndex::SystemCommon2;
           break;
 
         case Status::SystemSongPosition:
-          _data[0] |= uint8_t(CodeIndex::SystemCommon3);
+          codeIndex = CodeIndex::SystemCommon3;
           break;
 
         case Status::SystemTuneRequest:
@@ -188,69 +175,65 @@ namespace V2MIDI {
         case Status::SystemStop:
         case Status::SystemActiveSensing:
         case Status::SystemReset:
-          _data[0] |= uint8_t(CodeIndex::SingleByte);
+          codeIndex = CodeIndex::SingleByte;
           break;
       }
 
-      _data[1] = data0;
-      _data[2] = data1;
-      _data[3] = data2;
+      data[0] = data0;
+      data[1] = data1;
+      data[2] = data2;
       return this;
     }
 
     auto set(Status type, uint8_t channel, uint8_t data1 = 0, uint8_t data2 = 0) -> Packet* {
-      _data[0] &= 0xf0;
-
       switch (type) {
         case Status::NoteOff:
-          _data[0] |= uint8_t(CodeIndex::NoteOff);
+          codeIndex = CodeIndex::NoteOff;
           break;
 
         case Status::NoteOn:
-          _data[0] |= uint8_t(CodeIndex::NoteOn);
+          codeIndex = CodeIndex::NoteOn;
           break;
 
         case Status::Aftertouch:
-          _data[0] |= uint8_t(CodeIndex::Aftertouch);
+          codeIndex = CodeIndex::Aftertouch;
           break;
 
         case Status::ControlChange:
-          _data[0] |= uint8_t(CodeIndex::ControlChange);
+          codeIndex = CodeIndex::ControlChange;
           break;
 
         case Status::ProgramChange:
-          _data[0] |= uint8_t(CodeIndex::ProgramChange);
+          codeIndex = CodeIndex::ProgramChange;
           break;
 
         case Status::AftertouchChannel:
-          _data[0] |= uint8_t(CodeIndex::AftertouchChannel);
+          codeIndex = CodeIndex::AftertouchChannel;
           break;
 
         case Status::PitchBend:
-          _data[0] |= uint8_t(CodeIndex::PitchBend);
+          codeIndex = CodeIndex::PitchBend;
           break;
 
         default:
           std::abort();
       }
 
-      _data[1] = uint8_t(type) | channel;
-      _data[2] = data1;
-      _data[3] = data2;
+      data[0] = uint8_t(type) | channel;
+      data[1] = data1;
+      data[2] = data2;
       return this;
     }
 
     auto setSystem(Status type, uint8_t data1 = 0, uint8_t data2 = 0) -> Packet* {
-      _data[0] &= 0xf0;
-
       switch (type) {
         case Status::SystemSongSelect:
         case Status::SystemTimeCodeQuarterFrame:
-          _data[0] |= uint8_t(CodeIndex::SystemCommon2);
+          codeIndex = CodeIndex::SystemCommon2;
           break;
 
         case Status::SystemSongPosition:
-          _data[0] |= uint8_t(CodeIndex::SystemCommon3);
+          codeIndex = CodeIndex::SystemCommon3;
           break;
 
         case Status::SystemTuneRequest:
@@ -260,16 +243,16 @@ namespace V2MIDI {
         case Status::SystemStop:
         case Status::SystemActiveSensing:
         case Status::SystemReset:
-          _data[0] |= uint8_t(CodeIndex::SingleByte);
+          codeIndex = CodeIndex::SingleByte;
           break;
 
         default:
           std::abort();
       }
 
-      _data[1] = uint8_t(type);
-      _data[2] = data1;
-      _data[3] = data2;
+      data[0] = uint8_t(type);
+      data[1] = data1;
+      data[2] = data2;
       return this;
     }
 
@@ -305,11 +288,7 @@ namespace V2MIDI {
       auto bits{uint16_t(value + 8192)};
       return set(Status::PitchBend, channel, bits & 0x7f, (bits >> 7) & 0x7f);
     }
-
-  private:
-    friend class Port;
-    friend class SerialDevice;
-    friend class USBDevice;
-    uint8_t _data[4]{};
   };
+
+  static_assert(sizeof(Packet) == 4);
 };

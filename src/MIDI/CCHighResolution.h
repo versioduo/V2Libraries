@@ -10,7 +10,7 @@ namespace V2MIDI::CC {
   template <uint8_t first, uint8_t size = 1> class HighResolution {
   public:
     void reset() {
-      memset(_controllers, 0, sizeof(_controllers));
+      std::fill(_controllers.begin(), _controllers.end(), Value{});
     }
 
     uint16_t get(uint8_t controller = first) {
@@ -142,10 +142,11 @@ namespace V2MIDI::CC {
 
   private:
     enum class State : uint8_t { Init, LowResolution, HighResolution, Wait };
-    struct {
-      State    state;
-      uint8_t  msb;
-      uint16_t value;
-    } _controllers[size]{};
+    struct Value {
+      State    state{};
+      uint8_t  msb{};
+      uint16_t value{};
+    };
+    std::array<Value, size> _controllers;
   };
 }

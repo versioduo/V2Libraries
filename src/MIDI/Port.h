@@ -10,20 +10,20 @@ namespace V2MIDI {
   class Port {
   public:
     struct Counter {
-      uint32_t packet;
-      uint32_t note;
-      uint32_t noteOff;
-      uint32_t aftertouch;
-      uint32_t control;
-      uint32_t program;
-      uint32_t aftertouchChannel;
-      uint32_t pitchbend;
+      uint32_t packet{};
+      uint32_t note{};
+      uint32_t noteOff{};
+      uint32_t aftertouch{};
+      uint32_t control{};
+      uint32_t program{};
+      uint32_t aftertouchChannel{};
+      uint32_t pitchbend{};
       struct {
         struct {
-          uint32_t tick;
+          uint32_t tick{};
         } clock;
-        uint32_t exclusive;
-        uint32_t reset;
+        uint32_t exclusive{};
+        uint32_t reset{};
       } system;
     };
 
@@ -131,7 +131,7 @@ namespace V2MIDI {
       if (_sysex.out.length > 0)
         return false;
 
-      packet->port(_portIndex);
+      packet->port = _portIndex;
       if (!handleSend(packet))
         return false;
 
@@ -217,35 +217,39 @@ namespace V2MIDI {
       if (_sysex.out.length == 0)
         return 0;
 
-      Packet         _packet;
-      const uint32_t remain = _sysex.out.length - _sysex.out.position;
+      Packet   _packet;
+      uint32_t remain{_sysex.out.length - _sysex.out.position};
       switch (remain) {
         case 1:
-          _packet._data[0] = (_portIndex << 4) | static_cast<uint8_t>(Packet::CodeIndex::SystemExclusiveEnd1);
-          _packet._data[1] = _sysex.out.buffer[_sysex.out.position];
-          _packet._data[2] = 0;
-          _packet._data[3] = 0;
+          _packet.port      = _portIndex;
+          _packet.codeIndex = Packet::CodeIndex::SystemExclusiveEnd1;
+          _packet.data[0]   = _sysex.out.buffer[_sysex.out.position];
+          _packet.data[1]   = 0;
+          _packet.data[2]   = 0;
           break;
 
         case 2:
-          _packet._data[0] = (_portIndex << 4) | static_cast<uint8_t>(Packet::CodeIndex::SystemExclusiveEnd2);
-          _packet._data[1] = _sysex.out.buffer[_sysex.out.position];
-          _packet._data[2] = _sysex.out.buffer[_sysex.out.position + 1];
-          _packet._data[3] = 0;
+          _packet.port      = _portIndex;
+          _packet.codeIndex = Packet::CodeIndex::SystemExclusiveEnd2;
+          _packet.data[0]   = _sysex.out.buffer[_sysex.out.position];
+          _packet.data[1]   = _sysex.out.buffer[_sysex.out.position + 1];
+          _packet.data[2]   = 0;
           break;
 
         case 3:
-          _packet._data[0] = (_portIndex << 4) | static_cast<uint8_t>(Packet::CodeIndex::SystemExclusiveEnd3);
-          _packet._data[1] = _sysex.out.buffer[_sysex.out.position];
-          _packet._data[2] = _sysex.out.buffer[_sysex.out.position + 1];
-          _packet._data[3] = _sysex.out.buffer[_sysex.out.position + 2];
+          _packet.port      = _portIndex;
+          _packet.codeIndex = Packet::CodeIndex::SystemExclusiveEnd3;
+          _packet.data[0]   = _sysex.out.buffer[_sysex.out.position];
+          _packet.data[1]   = _sysex.out.buffer[_sysex.out.position + 1];
+          _packet.data[2]   = _sysex.out.buffer[_sysex.out.position + 2];
           break;
 
         default:
-          _packet._data[0] = (_portIndex << 4) | static_cast<uint8_t>(Packet::CodeIndex::SystemExclusiveStart);
-          _packet._data[1] = _sysex.out.buffer[_sysex.out.position];
-          _packet._data[2] = _sysex.out.buffer[_sysex.out.position + 1];
-          _packet._data[3] = _sysex.out.buffer[_sysex.out.position + 2];
+          _packet.port      = _portIndex;
+          _packet.codeIndex = Packet::CodeIndex::SystemExclusiveStart;
+          _packet.data[0]   = _sysex.out.buffer[_sysex.out.position];
+          _packet.data[1]   = _sysex.out.buffer[_sysex.out.position + 1];
+          _packet.data[2]   = _sysex.out.buffer[_sysex.out.position + 2];
           break;
       }
 
@@ -279,7 +283,7 @@ namespace V2MIDI {
     struct {
       Counter input;
       Counter output;
-    } _statistics{};
+    } _statistics;
 
     virtual void handleNote(uint8_t channel, uint8_t note, uint8_t velocity) {}
     virtual void handleNoteOff(uint8_t channel, uint8_t note, uint8_t velocity) {}
@@ -308,9 +312,9 @@ namespace V2MIDI {
   private:
     struct {
       struct {
-        uint8_t* buffer;
-        uint32_t length;
-        bool     appending;
+        uint8_t* buffer{};
+        uint32_t length{};
+        bool     appending{};
 
         void reset() {
           length    = 0;
@@ -319,20 +323,20 @@ namespace V2MIDI {
       } in;
 
       struct {
-        Transport* transport;
-        uint8_t*   buffer;
-        uint32_t   length;
-        uint32_t   position;
+        Transport* transport{};
+        uint8_t*   buffer{};
+        uint32_t   length{};
+        uint32_t   position{};
 
         void reset() {
           length   = 0;
           position = 0;
         }
       } out;
-    } _sysex{};
+    } _sysex;
 
     bool storeSystemExclusive(Packet* packet) {
-      switch (static_cast<Packet::CodeIndex>(packet->_data[0] & 0x0f)) {
+      switch (packet->codeIndex) {
         case Packet::CodeIndex::SystemCommon2:
         case Packet::CodeIndex::SystemCommon3:
         case Packet::CodeIndex::NoteOff:
@@ -360,7 +364,7 @@ namespace V2MIDI {
             return false;
           }
 
-          _sysex.in.buffer[_sysex.in.length++] = packet->_data[1];
+          _sysex.in.buffer[_sysex.in.length++] = packet->data[0];
           return false;
 
         // Start of a new SysEx stream, or append data to the current stream.
@@ -375,21 +379,21 @@ namespace V2MIDI {
             _sysex.in.length = 0;
 
             // Must be the start of a SysEx.
-            if (packet->_data[1] != static_cast<uint8_t>(Packet::Status::SystemExclusive))
+            if (packet->data[0] != static_cast<uint8_t>(Packet::Status::SystemExclusive))
               return false;
 
             _sysex.in.appending = true;
           }
 
-          _sysex.in.buffer[_sysex.in.length++] = packet->_data[1];
-          _sysex.in.buffer[_sysex.in.length++] = packet->_data[2];
-          _sysex.in.buffer[_sysex.in.length++] = packet->_data[3];
+          _sysex.in.buffer[_sysex.in.length++] = packet->data[0];
+          _sysex.in.buffer[_sysex.in.length++] = packet->data[1];
+          _sysex.in.buffer[_sysex.in.length++] = packet->data[2];
           return false;
 
         // End of SysEx stream with various lengths.
         case Packet::CodeIndex::SystemExclusiveEnd1:
           // Invalid 'End' packet
-          if (packet->_data[1] != static_cast<uint8_t>(Packet::Status::SystemExclusiveEnd)) {
+          if (packet->data[0] != static_cast<uint8_t>(Packet::Status::SystemExclusiveEnd)) {
             _sysex.in.reset();
             return false;
           }
@@ -406,12 +410,12 @@ namespace V2MIDI {
             return false;
           }
 
-          _sysex.in.buffer[_sysex.in.length++] = packet->_data[1];
+          _sysex.in.buffer[_sysex.in.length++] = packet->data[0];
           break;
 
         case Packet::CodeIndex::SystemExclusiveEnd2:
           // Invalid 'End' packet.
-          if (packet->_data[2] != static_cast<uint8_t>(Packet::Status::SystemExclusiveEnd)) {
+          if (packet->data[1] != static_cast<uint8_t>(Packet::Status::SystemExclusiveEnd)) {
             _sysex.in.reset();
             return false;
           }
@@ -427,17 +431,17 @@ namespace V2MIDI {
             _sysex.in.length = 0;
 
             // Must be an 'empty' SysEx.
-            if (packet->_data[1] != static_cast<uint8_t>(Packet::Status::SystemExclusive))
+            if (packet->data[0] != static_cast<uint8_t>(Packet::Status::SystemExclusive))
               return false;
           }
 
-          _sysex.in.buffer[_sysex.in.length++] = packet->_data[1];
-          _sysex.in.buffer[_sysex.in.length++] = packet->_data[2];
+          _sysex.in.buffer[_sysex.in.length++] = packet->data[0];
+          _sysex.in.buffer[_sysex.in.length++] = packet->data[1];
           break;
 
         case Packet::CodeIndex::SystemExclusiveEnd3:
           // Invalid 'End' packet.
-          if (packet->_data[3] != static_cast<uint8_t>(Packet::Status::SystemExclusiveEnd)) {
+          if (packet->data[2] != static_cast<uint8_t>(Packet::Status::SystemExclusiveEnd)) {
             _sysex.in.reset();
             return false;
           }
@@ -453,13 +457,13 @@ namespace V2MIDI {
             _sysex.in.length = 0;
 
             // Must be a 'one byte' SysEx.
-            if (packet->_data[1] != static_cast<uint8_t>(Packet::Status::SystemExclusive))
+            if (packet->data[0] != static_cast<uint8_t>(Packet::Status::SystemExclusive))
               return false;
           }
 
-          _sysex.in.buffer[_sysex.in.length++] = packet->_data[1];
-          _sysex.in.buffer[_sysex.in.length++] = packet->_data[2];
-          _sysex.in.buffer[_sysex.in.length++] = packet->_data[3];
+          _sysex.in.buffer[_sysex.in.length++] = packet->data[0];
+          _sysex.in.buffer[_sysex.in.length++] = packet->data[1];
+          _sysex.in.buffer[_sysex.in.length++] = packet->data[2];
           break;
 
         default:
@@ -469,7 +473,7 @@ namespace V2MIDI {
 
       // Always return 'SystemExclusive' as type.
       _sysex.in.appending = false;
-      packet->_data[1]    = static_cast<uint8_t>(Packet::Status::SystemExclusive);
+      packet->data[0]     = static_cast<uint8_t>(Packet::Status::SystemExclusive);
       return true;
     }
   };
