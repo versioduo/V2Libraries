@@ -108,9 +108,17 @@ public:
 
   class Port : public V2MIDI::Transport {
   public:
+    struct Counter {
+      uint32_t midi{};
+      uint32_t pulse{};
+      uint32_t number{};
+      uint32_t packets{};
+      uint32_t errors{};
+    };
+
     struct {
-      uint32_t input{};
-      uint32_t output{};
+      Counter input;
+      Counter output;
     } statistics;
 
     constexpr Port(Uart* uart, uint8_t pinTx = 0) : _uart(uart), _pinTx(pinTx) {}
@@ -145,6 +153,7 @@ public:
             _uart->read();
 
           _timeoutUsec = 0;
+          statistics.input.errors++;
         }
 
         return false;
@@ -152,8 +161,20 @@ public:
 
       _timeoutUsec = 0;
       _uart->readBytes((uint8_t*)&p, 5);
-      statistics.input++;
+      statistics.input.packets++;
+      switch (p.type) {
+        case Packet::Type::MIDI:
+          statistics.input.midi++;
+          break;
 
+        case Packet::Type::Pulse:
+          statistics.input.pulse++;
+          break;
+
+        case Packet::Type::Number:
+          statistics.input.number++;
+          break;
+      }
       return true;
     }
 
@@ -167,12 +188,26 @@ public:
 
       _usec = micros();
 
-      if (_uart->availableForWrite() < 5)
+      if (_uart->availableForWrite() < 5) {
+        statistics.output.errors++;
         return false;
+      }
 
       _uart->write((const uint8_t*)&p, 5);
-      statistics.output++;
+      statistics.output.packets++;
+      switch (p.type) {
+        case Packet::Type::MIDI:
+          statistics.output.midi++;
+          break;
 
+        case Packet::Type::Pulse:
+          statistics.output.pulse++;
+          break;
+
+        case Packet::Type::Number:
+          statistics.output.number++;
+          break;
+      }
       return true;
     }
 

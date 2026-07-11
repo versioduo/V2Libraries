@@ -25,6 +25,7 @@ namespace V2MIDI {
         uint32_t exclusive{};
         uint32_t reset{};
       } system;
+      uint32_t errors{};
     };
 
     Port() = delete;
@@ -186,14 +187,25 @@ namespace V2MIDI {
     // Prepare SysEx message to chunk into packets. Send as many packets as possible,
     // the remaining packets will be sent with loopSystemExclusive().
     void sendSystemExclusive(Transport* transport, uint32_t length) {
-      if (length < 2)
+      if (_sysex.out.length > 0) {
+        _statistics.output.errors++;
         return;
+      }
 
-      if (_sysex.out.buffer[0] != static_cast<uint8_t>(Packet::Status::SystemExclusive))
+      if (length < 2) {
+        _statistics.output.errors++;
         return;
+      }
 
-      if (_sysex.out.buffer[length - 1] != static_cast<uint8_t>(Packet::Status::SystemExclusiveEnd))
+      if (_sysex.out.buffer[0] != static_cast<uint8_t>(Packet::Status::SystemExclusive)) {
+        _statistics.output.errors++;
         return;
+      }
+
+      if (_sysex.out.buffer[length - 1] != static_cast<uint8_t>(Packet::Status::SystemExclusiveEnd)) {
+        _statistics.output.errors++;
+        return;
+      }
 
       _sysex.out.transport = transport;
       _sysex.out.length    = length;
@@ -269,9 +281,9 @@ namespace V2MIDI {
         return 1;
       }
 
-      _sysex.out.transport = NULL;
-      _sysex.out.length    = 0;
       _statistics.output.system.exclusive++;
+      _sysex.out.transport = nullptr;
+      _sysex.out.length    = 0;
       return 0;
     }
 
@@ -347,8 +359,7 @@ namespace V2MIDI {
         case Packet::CodeIndex::AftertouchChannel:
         case Packet::CodeIndex::PitchBend:
           // Return single packet message, discard any possible SysEx stream.
-          _sysex.in.appending = false;
-          _sysex.in.length    = 0;
+          _sysex.in.reset();
           return true;
 
         case Packet::CodeIndex::SingleByte:
@@ -360,6 +371,7 @@ namespace V2MIDI {
 
           // Used in the middle of a SysEx packet stream to transport a single byte instead of three.
           if (_sysex.in.length + 1 > _sysexSize) {
+            _statistics.input.errors++;
             _sysex.in.reset();
             return false;
           }
@@ -371,6 +383,7 @@ namespace V2MIDI {
         case Packet::CodeIndex::SystemExclusiveStart:
           // Not enough space to store the stream.
           if (_sysex.in.length + 3 > _sysexSize) {
+            _statistics.input.errors++;
             _sysex.in.reset();
             return false;
           }
@@ -379,8 +392,10 @@ namespace V2MIDI {
             _sysex.in.length = 0;
 
             // Must be the start of a SysEx.
-            if (packet->data[0] != static_cast<uint8_t>(Packet::Status::SystemExclusive))
+            if (packet->data[0] != static_cast<uint8_t>(Packet::Status::SystemExclusive)) {
+              _statistics.input.errors++;
               return false;
+            }
 
             _sysex.in.appending = true;
           }
@@ -394,18 +409,21 @@ namespace V2MIDI {
         case Packet::CodeIndex::SystemExclusiveEnd1:
           // Invalid 'End' packet
           if (packet->data[0] != static_cast<uint8_t>(Packet::Status::SystemExclusiveEnd)) {
+            _statistics.input.errors++;
             _sysex.in.reset();
             return false;
           }
 
           // 'End' packet without previous data, discarding.
           if (!_sysex.in.appending) {
-            _sysex.in.length = 0;
+            _statistics.input.errors++;
+            _sysex.in.reset();
             return false;
           }
 
           // Not enough space to store the stream.
           if (_sysex.in.length + 1 > _sysexSize) {
+            _statistics.input.errors++;
             _sysex.in.reset();
             return false;
           }
@@ -416,12 +434,14 @@ namespace V2MIDI {
         case Packet::CodeIndex::SystemExclusiveEnd2:
           // Invalid 'End' packet.
           if (packet->data[1] != static_cast<uint8_t>(Packet::Status::SystemExclusiveEnd)) {
+            _statistics.input.errors++;
             _sysex.in.reset();
             return false;
           }
 
           // Not enough space to store the stream.
           if (_sysex.in.length + 2 > _sysexSize) {
+            _statistics.input.errors++;
             _sysex.in.reset();
             return false;
           }
@@ -442,12 +462,14 @@ namespace V2MIDI {
         case Packet::CodeIndex::SystemExclusiveEnd3:
           // Invalid 'End' packet.
           if (packet->data[2] != static_cast<uint8_t>(Packet::Status::SystemExclusiveEnd)) {
+            _statistics.input.errors++;
             _sysex.in.reset();
             return false;
           }
 
           // Not enough space to store the stream.
           if (_sysex.in.length + 3 > _sysexSize) {
+            _statistics.input.errors++;
             _sysex.in.reset();
             return false;
           }
@@ -467,6 +489,7 @@ namespace V2MIDI {
           break;
 
         default:
+          _statistics.input.errors++;
           _sysex.in.reset();
           return false;
       }

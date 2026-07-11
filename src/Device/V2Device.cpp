@@ -280,43 +280,62 @@ static uint32_t escapeJSON(const uint8_t* jsonBuffer, uint32_t jsonLen, uint8_t*
   return bufferLen;
 }
 
-void addStatistics(JsonObject json, V2MIDI::Port::Counter* counter) {
-  json["packet"] = counter->packet;
+void addStatistics(JsonObject json, const V2MIDI::Port::Counter& counter) {
+  json["packet"] = counter.packet;
 
-  if (counter->note > 0)
-    json["note"] = counter->note;
+  if (counter.note > 0)
+    json["note"] = counter.note;
 
-  if (counter->noteOff > 0)
-    json["noteOff"] = counter->noteOff;
+  if (counter.noteOff > 0)
+    json["noteOff"] = counter.noteOff;
 
-  if (counter->aftertouch > 0)
-    json["aftertouch"] = counter->aftertouch;
+  if (counter.aftertouch > 0)
+    json["aftertouch"] = counter.aftertouch;
 
-  if (counter->control > 0)
-    json["control"] = counter->control;
+  if (counter.control > 0)
+    json["control"] = counter.control;
 
-  if (counter->program > 0)
-    json["program"] = counter->program;
+  if (counter.program > 0)
+    json["program"] = counter.program;
 
-  if (counter->aftertouchChannel > 0)
-    json["aftertouchChannel"] = counter->aftertouchChannel;
+  if (counter.aftertouchChannel > 0)
+    json["aftertouchChannel"] = counter.aftertouchChannel;
 
-  if (counter->pitchbend > 0)
-    json["pitchbend"] = counter->pitchbend;
+  if (counter.pitchbend > 0)
+    json["pitchbend"] = counter.pitchbend;
 
-  if (counter->system.exclusive > 0 || counter->system.reset > 0 || counter->system.clock.tick > 0) {
+  if (counter.system.exclusive > 0 || counter.system.reset > 0 || counter.system.clock.tick > 0) {
     JsonObject system = json["system"].to<JsonObject>();
-    if (counter->system.exclusive > 0)
-      system["exclusive"] = counter->system.exclusive;
+    if (counter.system.exclusive > 0)
+      system["exclusive"] = counter.system.exclusive;
 
-    if (counter->system.reset > 0)
-      system["reset"] = counter->system.reset;
+    if (counter.system.reset > 0)
+      system["reset"] = counter.system.reset;
 
-    if (counter->system.clock.tick > 0) {
+    if (counter.system.clock.tick > 0) {
       JsonObject clock = system["clock"].to<JsonObject>();
-      clock["tick"]    = counter->system.clock.tick;
+      clock["tick"]    = counter.system.clock.tick;
     }
   }
+
+  if (counter.errors > 0)
+    json["errors"] = counter.errors;
+}
+
+void addStatistics(JsonObject json, const V2Link::Port::Counter& counter) {
+  json["packets"] = counter.packets;
+
+  if (counter.midi > 0)
+    json["midi"] = counter.midi;
+
+  if (counter.pulse > 0)
+    json["pulse"] = counter.pulse;
+
+  if (counter.number > 0)
+    json["number"] = counter.number;
+
+  if (counter.errors > 0)
+    json["errors"] = counter.errors;
 }
 
 // Send the current data as a SystemExclusive, JSON message.
@@ -379,7 +398,7 @@ void V2Device::sendReply(V2MIDI::Transport* transport) {
 
     {
       JsonObject jsonBoot = jsonSystem["boot"].to<JsonObject>();
-      jsonBoot["uptime"]  = (uint32_t)(millis() / 1000);
+      jsonBoot["uptime"]  = float(millis()) / 1000.f;
       jsonBoot["id"]      = _boot.id;
     }
 
@@ -465,30 +484,36 @@ void V2Device::sendReply(V2MIDI::Transport* transport) {
     JsonObject jsonMidi = jsonSystem["midi"].to<JsonObject>();
     {
       JsonObject jsonIn = jsonMidi["input"].to<JsonObject>();
-      addStatistics(jsonIn, &_statistics.input);
+      addStatistics(jsonIn, _statistics.input);
 
       JsonObject jsonOut = jsonMidi["output"].to<JsonObject>();
-      addStatistics(jsonOut, &_statistics.output);
+      addStatistics(jsonOut, _statistics.output);
     }
 
     if (link) {
       JsonObject jsonLink = jsonSystem["link"].to<JsonObject>();
       if (link->plug) {
-        JsonObject jsonPlug = jsonLink["plug"].to<JsonObject>();
-        jsonPlug["input"]   = link->plug->statistics.input;
-        jsonPlug["output"]  = link->plug->statistics.output;
+        auto plug{jsonLink["plug"].to<JsonObject>()};
+        auto input{plug["input"].to<JsonObject>()};
+        addStatistics(input, link->plug->statistics.input);
+        auto output{plug["output"].to<JsonObject>()};
+        addStatistics(input, link->plug->statistics.output);
       }
 
       if (link->socket) {
-        JsonObject jsonSocket = jsonLink["socket"].to<JsonObject>();
-        jsonSocket["input"]   = link->socket->statistics.input;
-        jsonSocket["output"]  = link->socket->statistics.output;
+        auto socket{jsonLink["socket"].to<JsonObject>()};
+        auto input{socket["input"].to<JsonObject>()};
+        addStatistics(input, link->socket->statistics.input);
+        auto output{socket["output"].to<JsonObject>()};
+        addStatistics(input, link->socket->statistics.output);
       }
 
       if (link->socketNode) {
-        JsonObject jsonSocket = jsonLink["socketNode"].to<JsonObject>();
-        jsonSocket["input"]   = link->socketNode->statistics.input;
-        jsonSocket["output"]  = link->socketNode->statistics.output;
+        auto socketNode{jsonLink["socketNode"].to<JsonObject>()};
+        auto input{socketNode["input"].to<JsonObject>()};
+        addStatistics(input, link->socketNode->statistics.input);
+        auto output{socketNode["output"].to<JsonObject>()};
+        addStatistics(input, link->socketNode->statistics.output);
       }
     }
 
