@@ -121,7 +121,8 @@ public:
       Counter output;
     } statistics;
 
-    constexpr Port(Uart* uart, uint8_t pinTx = 0) : _uart(uart), _pinTx(pinTx) {}
+    Port() = delete;
+    constexpr Port(Uart* uart, uint8_t pinTx = 0) : Transport{"link"}, _uart(uart), _pinTx(pinTx) {}
 
     auto begin() {
       _uart->begin(3000000);

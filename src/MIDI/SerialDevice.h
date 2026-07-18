@@ -11,7 +11,8 @@ namespace V2MIDI {
       uint32_t output{};
     } statistics;
 
-    constexpr SerialDevice(Uart* uart) : _uart(uart) {}
+    SerialDevice() = delete;
+    constexpr SerialDevice(Uart* uart) : Transport{"serial"}, _uart(uart) {}
 
     auto begin() {
       _uart->begin(31250);

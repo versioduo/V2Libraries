@@ -7,6 +7,8 @@
 namespace V2MIDI {
   class USBDevice : public Transport, public V2Base::USBDevice {
   public:
+    USBDevice() : Transport{"usb"} {}
+
     auto send(const Packet& midi) -> bool override {
       return V2Base::USBDevice::send((const uint8_t*)&midi);
     }
