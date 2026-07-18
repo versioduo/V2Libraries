@@ -481,7 +481,9 @@ void V2Device::sendReply(V2MIDI::Transport* transport) {
       }
     }
 
-    JsonObject jsonMidi = jsonSystem["midi"].to<JsonObject>();
+    JsonObject jsonMidi   = jsonSystem["midi"].to<JsonObject>();
+    jsonMidi["transport"] = transport->name;
+
     {
       JsonObject jsonIn = jsonMidi["input"].to<JsonObject>();
       addStatistics(jsonIn, _statistics.input);
@@ -593,52 +595,48 @@ void V2Device::handleSystemExclusive(V2MIDI::Transport* transport, const uint8_t
   if (!jsonDevice)
     return;
 
-  // Requests and replies contain the device's current bootID. The token prevents
-  // devices from accepting messages intended for a different device, or messages
-  // addressed to the same device but a different boot cycle.
-  if (!jsonDevice["token"].isNull() && jsonDevice["token"] != _boot.id)
-    return;
-
   if (jsonDevice["method"] == "getAll") {
     json.clear();
     sendReply(transport);
     return;
   }
 
-  if (jsonDevice["method"] == "eraseConfiguration") {
+  // Requests and replies contain the device's current bootID. The token prevents
+  // devices from accepting messages intended for a different device, or messages
+  // addressed to the same device but a different boot cycle.
+  if (jsonDevice["token"] != _boot.id) {
+    return;
+
+  } else if (jsonDevice["method"] == "eraseConfiguration") {
     // Wipe the entire EEPROM area.
     V2Base::Memory::EEPROM::erase();
     V2Base::Memory::Firmware::reboot();
     return;
-  }
 
-  if (jsonDevice["method"] == "switchChannel") {
+  } else if (jsonDevice["method"] == "switchChannel") {
     if (!jsonDevice["channel"].isNull())
       handleSwitchChannel(jsonDevice["channel"]);
     json.clear();
     sendReply(transport);
     return;
-  }
 
-  if (jsonDevice["method"] == "reboot") {
+  } else if (jsonDevice["method"] == "reboot") {
     V2Base::Memory::Firmware::reboot();
     return;
-  }
 
-  if (jsonDevice["method"] == "bootloader") {
+  } else if (jsonDevice["method"] == "bootloader") {
     V2Base::Memory::Firmware::bootloader();
     return;
-  }
 
-  if (jsonDevice["method"] == "rebootWithPorts") {
+  } else if (jsonDevice["method"] == "rebootWithPorts") {
     bootData.usb.ports.enableAccess = true;
     V2Base::Memory::Firmware::reboot();
     return;
-  }
 
-  // Write the configuration the the EEPROM.
-  if (jsonDevice["method"] == "writeConfiguration") {
-    // The data in enclosed in an object to prevent name clashes with the
+  } else if (jsonDevice["method"] == "writeConfiguration") {
+    // Write the configuration the the EEPROM.
+
+    // The data is enclosed in an object to prevent name clashes with the
     // calling convention.
     JsonObject config = jsonDevice["configuration"];
     if (config) {
@@ -684,9 +682,8 @@ void V2Device::handleSystemExclusive(V2MIDI::Transport* transport, const uint8_t
     json.clear();
     sendReply(transport);
     return;
-  }
 
-  if (jsonDevice["method"] == "writeFirmware") {
+  } else if (jsonDevice["method"] == "writeFirmware") {
     // The data in enclosed in an object to prevent name clashes with the
     // calling convention.
     JsonObject firmware = jsonDevice["firmware"];
