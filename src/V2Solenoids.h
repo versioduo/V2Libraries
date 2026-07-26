@@ -46,7 +46,7 @@ public:
 
   constexpr V2Solenoids(Configuration config) : _config(config) {}
 
-  void reset() {
+  auto reset() {
     setPower(PowerState::Off);
 
     _loopUsec    = 0;
@@ -62,7 +62,7 @@ public:
     }
   }
 
-  void loop() {
+  auto loop() {
     bool busy{};
 
     if (V2Base::getUsecSince(_loopUsec) < 1000)
@@ -74,11 +74,11 @@ public:
     if (_timeoutUsec > 0 && V2Base::getUsecSince(_timeoutUsec) > 60 * 1000 * 1000) {
       _timeoutUsec = 0;
 
-      for (uint8_t i = 0; i < nPorts; i++)
+      for (uint8_t i{}; i < nPorts; i++)
         updateLED(i);
     }
 
-    for (uint8_t i = 0; i < nPorts; i++) {
+    for (uint8_t i{}; i < nPorts; i++) {
       if (_ports[i].state == DriverState::Idle)
         continue;
 
@@ -133,21 +133,22 @@ public:
 
     measureCurrent();
 
-    // Warn about too much load, and reset/switch-off all ports.
-    if (_current > _config.current.max) {
-      for (uint8_t i = 0; i < nPorts; i++)
-        releasePort(i);
+    if (busy) {
+      // Warn about too much load, and reset/switch-off all ports.
+      if (_current > _config.current.max) {
+        for (uint8_t i = 0; i < nPorts; i++)
+          releasePort(i);
 
-      // Clear the ready flag and force the resistance measurement, short-circuit
-      // ports will be isolated.
-      _probe = {};
-      setLED(LEDMode::OverCurrent);
+        // Clear the ready flag and force the resistance measurement, short-circuit
+        // ports will be isolated.
+        _probe = {};
+        setLED(LEDMode::OverCurrent);
+        return;
+      }
+
+      // The main power is still active, we cannot measure the resistance.
       return;
     }
-
-    // The main power is still active, we cannot measure the resistance.
-    if (busy)
-      return;
 
     if (_powerUsec > 0) {
       // The power needs to be switched-on immediately on incoming packets; to avoid
@@ -227,7 +228,7 @@ public:
     }
   }
 
-  void triggerPort(uint8_t port, float watts, float seconds, bool fadeIn = false, bool fadeOut = false) {
+  auto triggerPort(uint8_t port, float watts, float seconds, bool fadeIn = false, bool fadeOut = false) {
     if (!_probe.ready)
       return;
 
@@ -289,11 +290,11 @@ public:
     setLED(LEDMode::Power, port, watts);
   }
 
-  float getCurrent() {
+  auto getCurrent() -> float {
     return _current;
   }
 
-  float getResistance(uint8_t port) {
+  auto getResistance(uint8_t port) -> float {
     switch (_ports[port].measure.state) {
       case CoilState::NotConnected:
         return -1;
@@ -310,14 +311,23 @@ public:
 
 protected:
   enum class PowerState { On, Off };
-  virtual bool  setPower(PowerState state)           = 0;
-  virtual float readVoltage()                        = 0;
-  virtual float readCurrent()                        = 0;
-  virtual float readResistanceVoltage()              = 0;
-  virtual void  setPWMDuty(uint8_t port, float duty) = 0;
+  virtual auto setPower(PowerState state) -> bool           = 0;
+  virtual auto readVoltage() -> float                       = 0;
+  virtual auto readCurrent() -> float                       = 0;
+  virtual auto readResistanceVoltage() -> float             = 0;
+  virtual auto setPWMDuty(uint8_t port, float duty) -> void = 0;
 
-  enum class LEDMode { Off, Initialize, Ready, Resistance, Power, ShortCircuit, OverCurrent };
-  virtual void setLED(LEDMode state, uint8_t port = 0, float value = -1) {}
+  enum class LEDMode {
+    Off,
+    Initialize,
+    Ready,
+    Resistance,
+    Power,
+    ShortCircuit,
+    OverCurrent,
+  };
+
+  virtual auto setLED(LEDMode state, uint8_t port = 0, float value = -1) -> void {}
 
 private:
   const Configuration _config;
@@ -357,41 +367,52 @@ private:
   // Measured current flow.
   float _current{};
 
-  enum class DriverState { Idle, FadeIn, Peak, Hold, FadeOut };
-  enum class CoilState { NotConnected, Connected, ShortCircuit };
+  enum class DriverState {
+    Idle,
+    FadeIn,
+    Peak,
+    Hold,
+    FadeOut,
+  };
+
+  enum class CoilState {
+    NotConnected,
+    Connected,
+    ShortCircuit,
+  };
 
   struct {
-    DriverState state;
+    DriverState state{};
 
     // Current duty cycle. May fade-in/out to/from the target duty cycle.
-    float duty;
+    float duty{};
 
     struct {
-      CoilState state;
+      CoilState state{};
 
       // Measured coil resistance.
-      float resistance;
+      float resistance{};
 
       // Storage of the raw measurement to implements a low-pass filter.
-      float voltage;
+      float voltage{};
     } measure;
 
     // Current pulse parameters.
     struct {
-      uint32_t startUsec;
-      uint32_t peekUsec;
-      uint32_t durationUsec;
-      bool     fadeIn;
-      bool     fadeOut;
+      uint32_t startUsec{};
+      uint32_t peekUsec{};
+      uint32_t durationUsec{};
+      bool     fadeIn{};
+      bool     fadeOut{};
 
       struct {
-        float target;
-        float delta;
+        float target{};
+        float delta{};
       } duty;
     } pulse;
-  } _ports[nPorts]{};
+  } _ports[nPorts];
 
-  void measureResistance() {
+  auto measureResistance() -> void {
     // When the power supply is switched-off, a single port can be switched-on,
     // and 3.3V are connected to a 100Ω voltage divider. It measures the
     // resistance of the connected load.
@@ -399,36 +420,34 @@ private:
     // Voltage divider R1 = 100Ω, Vin = 3.3V, R2 has a diode with a drop of ~0.3V:
     //   ∞ = Vout 3.3V
     //  0Ω = Vout 0.3V
-    const float voltage = readResistanceVoltage();
+    const float voltage{readResistanceVoltage()};
 
     // Start with the current measurement, do not signal a short-circuit after a reset.
     if (_ports[_probe.port].measure.voltage < 0.f)
       _ports[_probe.port].measure.voltage = voltage;
 
     // Low-pass filter.
-    const float alpha = 0.3;
+    const float alpha{0.3};
     _ports[_probe.port].measure.voltage *= 1.f - alpha;
     _ports[_probe.port].measure.voltage += voltage * alpha;
 
     // Calculate voltage divider, R2 resistance.
-    const float r1                         = 100;
-    const float vIn                        = 3.3;
-    const float vOut                       = _ports[_probe.port].measure.voltage;
+    const float r1{100};
+    const float vIn{3.3};
+    const float vOut{_ports[_probe.port].measure.voltage};
     // Account for the ~0.3V drop of the R2 diode.
     _ports[_probe.port].measure.resistance = ((vOut - 0.3f) * r1) / (vIn - vOut);
 
     // Not connected or resistance too high to be useful.
-    CoilState state;
+    CoilState state{};
     if (_ports[_probe.port].measure.resistance > _config.resistance.max) {
       state = CoilState::NotConnected;
-    }
 
-    // Short-circuit or resistance too low.
-    else if (_ports[_probe.port].measure.resistance < _config.resistance.min) {
+    } else if (_ports[_probe.port].measure.resistance < _config.resistance.min) {
+      // Short-circuit or resistance too low.
       state = CoilState::ShortCircuit;
-    }
 
-    else {
+    } else {
       state = CoilState::Connected;
     }
 
@@ -442,7 +461,7 @@ private:
     updateLED(_probe.port);
   }
 
-  void measureCurrent() {
+  auto measureCurrent() -> void {
     if (_config.current.alpha > 0.f) {
       // Low-pass filter.
       _current *= 1.f - _config.current.alpha;
@@ -455,16 +474,16 @@ private:
 
   // Convert the watts to a PWM duty cycle, depending on the measured
   // resistance and current voltage.
-  float wattsToPWMDuty(uint8_t port, float watts) {
-    const float supply  = readVoltage();
-    float       voltage = sqrtf(watts * _ports[port].measure.resistance);
+  auto wattsToPWMDuty(uint8_t port, float watts) -> float {
+    auto supply{readVoltage()};
+    auto voltage{std::sqrtf(watts * _ports[port].measure.resistance)};
     if (voltage > supply)
       voltage = supply;
 
     return voltage / supply;
   }
 
-  void releasePort(uint8_t port) {
+  auto releasePort(uint8_t port) {
     setPWMDuty(port, 0);
     _ports[port].state = DriverState::Idle;
     _ports[port].duty  = 0;
@@ -472,7 +491,7 @@ private:
     updateLED(port);
   }
 
-  bool fadeOutPort(uint8_t port) {
+  auto fadeOutPort(uint8_t port) -> bool {
     if (!_ports[port].pulse.fadeOut)
       return false;
 
@@ -484,7 +503,7 @@ private:
     return true;
   }
 
-  void updateLED(uint8_t port, bool force = false) {
+  auto updateLED(uint8_t port, bool force = false) {
     if (!force && _timeoutUsec == 0) {
       setLED(LEDMode::Off, port);
       return;
