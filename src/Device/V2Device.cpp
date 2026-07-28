@@ -499,7 +499,7 @@ void V2Device::sendReply(V2MIDI::Transport* transport) {
         auto input{plug["input"].to<JsonObject>()};
         addStatistics(input, link->plug->statistics.input);
         auto output{plug["output"].to<JsonObject>()};
-        addStatistics(input, link->plug->statistics.output);
+        addStatistics(output, link->plug->statistics.output);
       }
 
       if (link->socket) {
@@ -507,7 +507,7 @@ void V2Device::sendReply(V2MIDI::Transport* transport) {
         auto input{socket["input"].to<JsonObject>()};
         addStatistics(input, link->socket->statistics.input);
         auto output{socket["output"].to<JsonObject>()};
-        addStatistics(input, link->socket->statistics.output);
+        addStatistics(output, link->socket->statistics.output);
       }
 
       if (link->socketNode) {
@@ -515,7 +515,7 @@ void V2Device::sendReply(V2MIDI::Transport* transport) {
         auto input{socketNode["input"].to<JsonObject>()};
         addStatistics(input, link->socketNode->statistics.input);
         auto output{socketNode["output"].to<JsonObject>()};
-        addStatistics(input, link->socketNode->statistics.output);
+        addStatistics(output, link->socketNode->statistics.output);
       }
     }
 

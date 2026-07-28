@@ -28,6 +28,9 @@ namespace V2MIDI {
     }
 
     auto send(const Packet& midi) -> bool override {
+      if (_uart->availableForWrite() < 3)
+        return false;
+
       switch (midi.type()) {
         case Packet::Status::NoteOn:
         case Packet::Status::NoteOff:
@@ -35,7 +38,7 @@ namespace V2MIDI {
         case Packet::Status::ControlChange:
         case Packet::Status::PitchBend:
         case Packet::Status::SystemSongPosition:
-          return _uart->write(midi.data.data(), 3);
+          _uart->write(midi.data.data(), 3);
           statistics.output++;
           return true;
 
@@ -43,7 +46,7 @@ namespace V2MIDI {
         case Packet::Status::AftertouchChannel:
         case Packet::Status::SystemTimeCodeQuarterFrame:
         case Packet::Status::SystemSongSelect:
-          return _uart->write(midi.data.data(), 2);
+          _uart->write(midi.data.data(), 2);
           statistics.output++;
           return true;
 
@@ -54,7 +57,7 @@ namespace V2MIDI {
         case Packet::Status::SystemStop:
         case Packet::Status::SystemActiveSensing:
         case Packet::Status::SystemReset:
-          return _uart->write(midi.data[0]);
+          _uart->write(midi.data[0]);
           statistics.output++;
           return true;
 
