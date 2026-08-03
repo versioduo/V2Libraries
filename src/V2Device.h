@@ -67,6 +67,7 @@ public:
     struct {
       // The default number of ports
       uint8_t standard{1};
+      bool    fixed{};
 
       // The number of ports to enable when 'rebootWithPorts' is called
       // to gain access to the children devices.

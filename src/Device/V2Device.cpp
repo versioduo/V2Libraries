@@ -474,6 +474,8 @@ void V2Device::sendReply(V2MIDI::Transport* transport) {
         if (usb.ports.standard > 0) {
           JsonObject jsonPorts  = jsonUsb["ports"].to<JsonObject>();
           jsonPorts["standard"] = usb.ports.standard;
+          if (usb.ports.fixed)
+            jsonPorts["fixed"] = usb.ports.fixed;
           if (usb.ports.access > 0)
             jsonPorts["access"] = usb.ports.access;
           jsonPorts["current"] = usb.ports.current;
