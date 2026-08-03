@@ -1,6 +1,7 @@
 #pragma once
 #include <Adafruit_TinyUSB.h>
 #include <Arduino.h>
+#undef USB
 #undef USBDevice
 
 namespace V2Base {
