@@ -4,15 +4,13 @@
 
 class V2Colour {
 public:
-  enum Hue {
-    Red     = 0,
-    Orange  = 20,
-    Yellow  = 60,
-    Green   = 120,
-    Cyan    = 180,
-    Blue    = 240,
-    Magenta = 300,
-  };
+  static constexpr float Red{};
+  static constexpr float Orange{20};
+  static constexpr float Yellow{60};
+  static constexpr float Green{120};
+  static constexpr float Cyan{180};
+  static constexpr float Blue{240};
+  static constexpr float Magenta{300};
 
   // CIE 1931 - psychometric lightness / human color vision
   //   L* = 903.3 ∙ Y,            if Y ≤ 0.008856

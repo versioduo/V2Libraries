@@ -4,14 +4,14 @@
 auto V2LED::WS2812::begin() -> void {
   // Lead-in of ~300 usec to settle the signal at logic low + pixel data + ~300
   // usec latch 2.4 MBit SPI clock / 8 == 300 kByte/s == 3.33 usec / Byte.
-  _dma.bufferSize = 90 + (sizeof(struct PixelDMA) * _nLEDsMax) + 90;
+  _dma.bufferSize = 90 + (sizeof(struct PixelDMA) * _capacity) + 90;
   _dma.buffer     = (uint8_t*)calloc(_dma.bufferSize, 1);
 
   // Pointer to start of encoded pixel data.
   _pixelDMA = (struct PixelDMA*)(_dma.buffer + 90);
 
   // RGB buffer to draw DMA pixel data from.
-  _pixelRGB = (struct PixelRGB*)calloc(sizeof(struct PixelRGB), _nLEDsMax);
+  _pixelRGB = (struct PixelRGB*)calloc(sizeof(struct PixelRGB), _capacity);
 
   // Build SPI bus from SERCOM.
   //
@@ -29,7 +29,7 @@ auto V2LED::WS2812::begin() -> void {
   _spi->begin();
   _spi->beginTransaction(SPISettings(2400000, MSBFIRST, SPI_MODE0));
 
-  _leds.count = _nLEDsMax;
+  _leds.size = _capacity;
   reset();
 }
 
@@ -37,25 +37,25 @@ auto V2LED::WS2812::reset() -> void {
   while (_spi->isBusy())
     yield();
 
-  _splash  = {};
+  _flash   = {};
   _rainbow = {};
-  setBrightness(0);
+  brightness(0);
 }
 
 auto V2LED::WS2812::loop() -> void {
   // Remove timed splash.
-  if (_splash.startUsec > 0 && (unsigned long)(micros() - _splash.startUsec) > _splash.durationUsec) {
-    _dma.update       = true;
-    _splash.startUsec = 0;
+  if (_flash.startUsec > 0 && uint32_t(micros() - _flash.startUsec) > _flash.durationUsec) {
+    _dma.update      = true;
+    _flash.startUsec = 0;
   }
 
   // Draw rainbow.
-  if (_rainbow.cycleSteps > 0 && (unsigned long)(micros() - _rainbow.lastUsec) > 25 * 1000) {
+  if (_rainbow.cycleSteps > 0 && uint32_t(micros() - _rainbow.lastUsec) > 25 * 1000) {
     _rainbow.lastUsec = micros();
 
     int16_t color = _rainbow.color;
-    for (uint16_t i = 0; i < _leds.count; i++) {
-      setLED(i, color, 1, _rainbow.brightness);
+    for (uint16_t i{}; i < _leds.size; i++) {
+      update(i, {float(color), 1, _rainbow.brightness});
 
       if (_rainbow.reverse) {
         color += _rainbow.cycleSteps;
@@ -81,25 +81,51 @@ auto V2LED::WS2812::loop() -> void {
     return;
 
   // Draw splash overlay.
-  if (_splash.startUsec > 0) {
+  if (_flash.startUsec > 0) {
     PixelRGB pixel;
 
-    for (uint16_t i = 0; i < _leds.count; i++) {
-      PixelDMA* pixelDMA = _leds.reverse ? &_pixelDMA[_leds.count - 1 - i] : &_pixelDMA[i];
-      if (i >= _splash.start && i < (_splash.start + _splash.count))
-        encodePixel(&_splash.pixel, pixelDMA);
+    for (uint16_t i{}; i < _leds.size; i++) {
+      auto pixelDMA{_leds.reverse ? &_pixelDMA[_leds.size - 1 - i] : &_pixelDMA[i]};
+      if (i >= _flash.first && i < (_flash.first + _flash.count))
+        encodePixel(_flash.pixel, *pixelDMA);
       else
-        encodePixel(&pixel, _pixelDMA);
+        encodePixel(pixel, *_pixelDMA);
     }
   } else {
-    for (uint16_t i = 0; i < _leds.count; i++) {
-      PixelDMA* pixelDMA = _leds.reverse ? &_pixelDMA[_leds.count - 1 - i] : &_pixelDMA[i];
-      encodePixel(&_pixelRGB[i], pixelDMA);
+    for (uint16_t i{}; i < _leds.size; i++) {
+      auto pixelDMA{_leds.reverse ? &_pixelDMA[_leds.size - 1 - i] : &_pixelDMA[i]};
+      encodePixel(_pixelRGB[i], *pixelDMA);
     }
   }
 
   _spi->transfer(_dma.buffer, NULL, _dma.bufferSize, false);
   _dma.update = false;
+}
+
+auto V2LED::WS2812::brightnessMax(float fraction) -> void {
+  _leds.maxBrightness = fraction;
+  _dma.update         = true;
+}
+
+auto V2LED::WS2812::hsv(HSV c, uint16_t first, uint16_t count) -> void {
+  if (rainbow())
+    return;
+
+  for (uint16_t i{first}; i < first + count; i++)
+    update(i, c);
+}
+
+auto V2LED::WS2812::rgb(RGB c, uint16_t first, uint16_t count) -> void {
+  if (rainbow())
+    return;
+
+  for (auto i{first}; i < first + count; i++) {
+    _pixelRGB[i].r = float(c.r) * _leds.maxBrightness;
+    _pixelRGB[i].g = float(c.g) * _leds.maxBrightness;
+    _pixelRGB[i].b = float(c.b) * _leds.maxBrightness;
+  }
+
+  _dma.update = true;
 }
 
 static auto convertWS2812(float h, float s, float v, uint8_t* rp, uint8_t* gp, uint8_t* bp) {
@@ -121,9 +147,30 @@ static auto convertWS2812(float h, float s, float v, uint8_t* rp, uint8_t* gp, u
   *bp = b;
 }
 
-auto V2LED::WS2812::setLED(uint16_t index, float h, float s, float v) -> void {
-  convertWS2812(h, s, v * _leds.maxBrightness, &_pixelRGB[index].r, &_pixelRGB[index].g, &_pixelRGB[index].b);
+auto V2LED::WS2812::update(uint16_t index, HSV c) -> void {
+  convertWS2812(c.h, c.s, c.v * _leds.maxBrightness, &_pixelRGB[index].r, &_pixelRGB[index].g, &_pixelRGB[index].b);
   _dma.update = true;
+}
+
+auto V2LED::WS2812::flash(HSV c, float seconds, uint16_t first, uint16_t count) -> void {
+  convertWS2812(c.h, c.s, c.v, &_flash.pixel.r, &_flash.pixel.g, &_flash.pixel.b);
+  _flash.first        = first;
+  _flash.count        = count;
+  _flash.durationUsec = seconds * 1000.f * 1000.f;
+  _flash.startUsec    = micros();
+  _dma.update         = true;
+}
+
+auto V2LED::WS2812::rainbow(uint8_t cycles, float seconds, float brightness, bool reverse) -> void {
+  if (cycles == 0) {
+    _rainbow = {};
+    return;
+  }
+
+  _rainbow.cycleSteps = (360 / _leds.size) * cycles;
+  _rainbow.moveSteps  = (360.f / 40.f) / seconds;
+  _rainbow.brightness = brightness;
+  _rainbow.reverse    = reverse;
 }
 
 static auto encodeByteFrame(uint8_t b, uint8_t f[3]) {
@@ -162,39 +209,8 @@ static auto encodeByteFrame(uint8_t b, uint8_t f[3]) {
   f[2] = frame.bytes[0];
 }
 
-auto V2LED::WS2812::encodePixel(const struct PixelRGB* rgb, struct PixelDMA* dma) -> void {
-  encodeByteFrame(rgb->r, dma->r);
-  encodeByteFrame(rgb->g, dma->g);
-  encodeByteFrame(rgb->b, dma->b);
-}
-
-auto V2LED::WS2812::setMaxBrightness(float fraction) -> void {
-  _leds.maxBrightness = fraction;
-  _dma.update         = true;
-}
-
-auto V2LED::WS2812::setRGB(uint16_t index, uint8_t r, uint8_t g, uint8_t b) -> void {
-  if (isRainbow())
-    return;
-
-  _pixelRGB[index].r = (float)r * _leds.maxBrightness;
-  _pixelRGB[index].g = (float)g * _leds.maxBrightness;
-  _pixelRGB[index].b = (float)b * _leds.maxBrightness;
-  _dma.update        = true;
-}
-
-auto V2LED::WS2812::splashHSV(float seconds, uint16_t start, uint16_t count, float h, float s, float v) -> void {
-  convertWS2812(h, s, v, &_splash.pixel.r, &_splash.pixel.g, &_splash.pixel.b);
-  _splash.start        = start;
-  _splash.count        = count;
-  _splash.durationUsec = seconds * 1000.f * 1000.f;
-  _splash.startUsec    = micros();
-  _dma.update          = true;
-}
-
-auto V2LED::WS2812::rainbow(uint8_t cycles, float seconds, float brightness, bool reverse) -> void {
-  _rainbow.cycleSteps = (360 / _leds.count) * cycles;
-  _rainbow.moveSteps  = (360.f / 40.f) / seconds;
-  _rainbow.brightness = brightness;
-  _rainbow.reverse    = reverse;
+auto V2LED::WS2812::encodePixel(const struct PixelRGB& rgb, struct PixelDMA& dma) -> void {
+  encodeByteFrame(rgb.r, dma.r);
+  encodeByteFrame(rgb.g, dma.g);
+  encodeByteFrame(rgb.b, dma.b);
 }

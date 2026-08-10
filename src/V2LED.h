@@ -7,9 +7,10 @@ namespace V2LED {
   // Simple digital port driver driven by a timer.
   class Basic {
   public:
+    Basic() = delete;
     constexpr Basic(uint8_t pin, V2Base::Timer::Periodic* timer) : _pin(pin), _timer(timer) {}
     auto tick() -> void;
-    auto setBrightness(float fraction) -> void;
+    auto brightness(float fraction) -> void;
     auto flash(float seconds, float brightness = 1) -> void;
     auto loop() -> void;
     auto reset() -> void;
@@ -19,19 +20,32 @@ namespace V2LED {
     V2Base::Timer::Periodic* _timer;
 
     struct {
-      unsigned long startUsec{};
-      unsigned long durationUsec{};
+      uint32_t startUsec{};
+      uint32_t durationUsec{};
     } _flash{};
   };
 
-  // Daisy-chained intelligent RGB-LEDs.
+  // Daisy-chained intelligent RGB LEDs.
   class WS2812 {
   public:
-    constexpr WS2812(uint16_t nLEDs, SPIClass* spi) : _nLEDsMax(nLEDs), _spi{spi} {}
+    struct HSV {
+      float h{};
+      float s{};
+      float v{};
+    };
+
+    struct RGB {
+      uint8_t r{};
+      uint8_t g{};
+      uint8_t b{};
+    };
+
+    WS2812() = delete;
+    constexpr WS2812(uint16_t capacity, SPIClass* spi) : _capacity(capacity), _spi{spi} {}
 
     // Build SPI bus from SERCOM.
-    constexpr WS2812(uint16_t nLEDs, uint8_t pin, SERCOM* sercom, SercomSpiTXPad padTX, EPioType pinFunc) :
-      _nLEDsMax(nLEDs),
+    constexpr WS2812(uint16_t capacity, uint8_t pin, SERCOM* sercom, SercomSpiTXPad padTX, EPioType pinFunc) :
+      _capacity(capacity),
       _sercom{.pin{pin}, .sercom{sercom}, .padTX{padTX}, .pinFunc{pinFunc}} {}
 
     auto begin() -> void;
@@ -45,74 +59,55 @@ namespace V2LED {
     // The logical number of LEDs to drive; it might differ from the number of connected
     // LEDs. The number becomes important when the direction is reversed and the last LED
     // becomes index number zero.
-    auto getNumLEDs() -> uint16_t const {
-      return _leds.count;
+    auto size() const -> uint16_t {
+      return _leds.size;
     }
 
-    auto setNumLEDs(uint16_t count) {
+    auto resize(uint16_t count) {
       reset();
-      _leds.count = count;
+      _leds.size = count;
     }
 
-    auto setDirection(bool reverse) {
+    auto reverse(bool reverse) {
       _leds.reverse = reverse;
     }
 
-    // The fraction of the brightness to apply. The value is applied with
-    // the next call to loop().
-    auto setMaxBrightness(float fraction) -> void;
+    auto brightnessMax(float fraction) -> void;
 
-    // Set white color brightness for one or all LEDs.
-    auto setBrightness(uint16_t index, float v) {
-      if (isRainbow())
-        return;
-
-      setLED(index, 0, 0, v);
+    auto hsv(HSV c, uint16_t first, uint16_t count = 1) -> void;
+    auto hsv(HSV c) -> void {
+      hsv(c, 0, size());
     }
 
-    auto setBrightness(float v) {
-      for (uint16_t i = 0; i < _leds.count; i++)
-        setBrightness(i, v);
+    auto brightness(float v, uint16_t first, uint16_t count = 1) -> void {
+      hsv({0, 0, v}, first, count);
     }
 
-    // Set HSV color for one or all LEDs.
-    auto setHSV(uint16_t index, float h, float s, float v) {
-      if (isRainbow())
-        return;
-
-      setLED(index, h, s, v);
+    auto brightness(float v) -> void {
+      hsv({0, 0, v});
     }
 
-    auto setHSV(float h, float s, float v) {
-      for (uint16_t i = 0; i < _leds.count; i++)
-        setHSV(i, h, s, v);
-    }
+    auto rgb(RGB c, uint16_t first, uint16_t count = 1) -> void;
 
-    auto setRGB(uint16_t index, uint8_t r, uint8_t g, uint8_t b) -> void;
-    auto setRGB(uint8_t r, uint8_t g, uint8_t b) -> void {
-      for (uint16_t i = 0; i < _leds.count; i++)
-        setRGB(i, r, g, b);
-    }
-
-    // Overlay a timed splash. Sets the color of n LEDs; loop() restores the
-    // buffered state after the specified duration.
-    auto splashHSV(float seconds, uint16_t start, uint16_t count, float h, float s, float v) -> void;
-    auto splashHSV(float seconds, float h, float s, float v) -> void {
-      splashHSV(seconds, 0, _leds.count, h, s, v);
+    // Overlay a flash for the specified duration.
+    auto flash(HSV c, float seconds, uint16_t first, uint16_t count = 1) -> void;
+    auto flash(HSV c, float seconds) -> void {
+      flash(c, seconds, 0, size());
     }
 
     // Draw a rainbow, cycles specifies how many cycles through the colors are
     // visible at the same time across all LEDs, seconds is duration for one LED
     // to rotate through one cycle of the colors.
-    auto rainbow(uint8_t cycles = 1, float seconds = 1, float brightness = 1, bool reverse = false) -> void;
-    auto isRainbow() -> bool {
+    auto rainbow(uint8_t cycles, float seconds = 1, float brightness = 1, bool reverse = false) -> void;
+    auto rainbow() const -> bool {
       return _rainbow.cycleSteps > 0;
     }
 
   private:
-    const uint16_t _nLEDsMax{};
+    const uint16_t _capacity{};
+
     struct {
-      uint16_t count{};
+      uint16_t size{};
       bool     reverse{};
       float    maxBrightness{1};
     } _leds;
@@ -145,24 +140,24 @@ namespace V2LED {
     }* _pixelDMA{};
 
     struct {
-      PixelRGB      pixel;
-      uint16_t      start{};
-      uint16_t      count{};
-      unsigned long startUsec{};
-      unsigned long durationUsec{};
-    } _splash;
+      PixelRGB pixel;
+      uint16_t first;
+      uint16_t count;
+      uint32_t startUsec{};
+      uint32_t durationUsec{};
+    } _flash;
 
     struct {
-      uint8_t       cycleSteps{};
-      uint8_t       moveSteps{};
-      float         brightness{};
-      bool          reverse{};
-      uint16_t      color{};
-      unsigned long updateUsec{};
-      unsigned long lastUsec{};
-    } _rainbow{};
+      uint8_t  cycleSteps{};
+      uint8_t  moveSteps{};
+      float    brightness{};
+      bool     reverse{};
+      uint16_t color{};
+      uint32_t updateUsec{};
+      uint32_t lastUsec{};
+    } _rainbow;
 
-    auto setLED(uint16_t index, float h, float s, float v) -> void;
-    auto encodePixel(const struct PixelRGB* rgb, struct PixelDMA* dma) -> void;
+    auto update(uint16_t index, HSV c) -> void;
+    auto encodePixel(const struct PixelRGB& rgb, struct PixelDMA& dma) -> void;
   };
 };

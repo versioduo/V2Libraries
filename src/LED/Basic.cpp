@@ -9,7 +9,7 @@ auto V2LED::Basic::tick() -> void {
     _pin.low();
 }
 
-auto V2LED::Basic::setBrightness(float fraction) -> void {
+auto V2LED::Basic::brightness(float fraction) -> void {
   if (fraction <= 0) {
     _flash = {};
     _timer->setFraction(0);
@@ -32,7 +32,7 @@ auto V2LED::Basic::setBrightness(float fraction) -> void {
 auto V2LED::Basic::flash(float seconds, float brightness) -> void {
   _flash.startUsec    = micros();
   _flash.durationUsec = seconds * 1000.f * 1000.f;
-  setBrightness(brightness);
+  this->brightness(brightness);
 }
 
 auto V2LED::Basic::loop() -> void {
@@ -43,7 +43,7 @@ auto V2LED::Basic::loop() -> void {
     return;
 
   _flash.durationUsec = 0;
-  setBrightness(0);
+  brightness(0);
 }
 
 auto V2LED::Basic::reset() -> void {
