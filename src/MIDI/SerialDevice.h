@@ -6,11 +6,6 @@
 namespace V2MIDI {
   class SerialDevice : public Transport {
   public:
-    struct {
-      uint32_t input{};
-      uint32_t output{};
-    } statistics;
-
     SerialDevice() = delete;
     constexpr SerialDevice(Uart* uart) : Transport{"serial"}, _uart(uart) {}
 
@@ -20,14 +15,13 @@ namespace V2MIDI {
     }
 
     auto reset() {
-      _state     = {};
-      statistics = {};
-      _channel   = {};
-      _status    = {};
-      _data1     = {};
+      _state   = {};
+      _channel = {};
+      _status  = {};
+      _data1   = {};
     }
 
-    auto send(const Packet& midi) -> bool override {
+    auto send(Packet& midi) -> bool override {
       if (_uart->availableForWrite() < 3)
         return false;
 
@@ -39,7 +33,7 @@ namespace V2MIDI {
         case Packet::Status::PitchBend:
         case Packet::Status::SystemSongPosition:
           _uart->write(midi.data.data(), 3);
-          statistics.output++;
+          statistics.output.packet++;
           return true;
 
         case Packet::Status::ProgramChange:
@@ -47,7 +41,7 @@ namespace V2MIDI {
         case Packet::Status::SystemTimeCodeQuarterFrame:
         case Packet::Status::SystemSongSelect:
           _uart->write(midi.data.data(), 2);
-          statistics.output++;
+          statistics.output.packet++;
           return true;
 
         case Packet::Status::SystemTuneRequest:
@@ -58,7 +52,7 @@ namespace V2MIDI {
         case Packet::Status::SystemActiveSensing:
         case Packet::Status::SystemReset:
           _uart->write(midi.data[0]);
-          statistics.output++;
+          statistics.output.packet++;
           return true;
 
         // System Exclusive is only handled right now.
@@ -86,7 +80,7 @@ namespace V2MIDI {
           case (uint8_t)Packet::Status::SystemActiveSensing:
           case (uint8_t)Packet::Status::SystemReset:
             midi.setSystem(Packet::Status(b), 0, 0);
-            statistics.input++;
+            statistics.input.packet++;
             return true;
         }
 
@@ -105,7 +99,7 @@ namespace V2MIDI {
             case Packet::Status::SystemTuneRequest:
               midi.set(_status, 0, 0, 0);
               _state = State::Idle;
-              statistics.input++;
+              statistics.input.packet++;
               return true;
 
             // Wait for next byte.
@@ -137,7 +131,7 @@ namespace V2MIDI {
             case Packet::Status::SystemSongSelect:
               midi.set(_status, _channel, b, 0);
               _state = State::Idle;
-              statistics.input++;
+              statistics.input.packet++;
               return true;
 
             // Wait for next byte.
@@ -156,7 +150,7 @@ namespace V2MIDI {
         case State::Data2:
           midi.set(_status, _channel, _data1, b);
           _state = State::Idle;
-          statistics.input++;
+          statistics.input.packet++;
           return true;
 
         case State::SysEx:

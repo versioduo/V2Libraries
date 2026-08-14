@@ -67,7 +67,7 @@ bool V2Device::readEEPROM(bool dryrun) {
 }
 
 void V2Device::begin() {
-  V2MIDI::Port::begin();
+  V2MIDI::Device::begin();
   usb.midi.begin();
 
   // The priority needs to be lower than the SERCOM priorities.
@@ -280,62 +280,55 @@ static uint32_t escapeJSON(const uint8_t* jsonBuffer, uint32_t jsonLen, uint8_t*
   return bufferLen;
 }
 
-void addStatistics(JsonObject json, const V2MIDI::Port::Counter& counter) {
-  json["packet"] = counter.packet;
+void addStatistics(JsonObject json, const V2MIDI::Transport::Statistics& s) {
+  auto counter{[](JsonObject j, const V2MIDI::Transport::Counter& c) {
+    j["packet"] = c.packet;
 
-  if (counter.note > 0)
-    json["note"] = counter.note;
+    if (c.note > 0)
+      j["note"] = c.note;
 
-  if (counter.noteOff > 0)
-    json["noteOff"] = counter.noteOff;
+    if (c.noteOff > 0)
+      j["noteOff"] = c.noteOff;
 
-  if (counter.aftertouch > 0)
-    json["aftertouch"] = counter.aftertouch;
+    if (c.aftertouch > 0)
+      j["aftertouch"] = c.aftertouch;
 
-  if (counter.control > 0)
-    json["control"] = counter.control;
+    if (c.control > 0)
+      j["control"] = c.control;
 
-  if (counter.program > 0)
-    json["program"] = counter.program;
+    if (c.program > 0)
+      j["program"] = c.program;
 
-  if (counter.aftertouchChannel > 0)
-    json["aftertouchChannel"] = counter.aftertouchChannel;
+    if (c.aftertouchChannel > 0)
+      j["aftertouchChannel"] = c.aftertouchChannel;
 
-  if (counter.pitchbend > 0)
-    json["pitchbend"] = counter.pitchbend;
+    if (c.pitchbend > 0)
+      j["pitchbend"] = c.pitchbend;
 
-  if (counter.system.exclusive > 0 || counter.system.reset > 0 || counter.system.clock.tick > 0) {
-    JsonObject system = json["system"].to<JsonObject>();
-    if (counter.system.exclusive > 0)
-      system["exclusive"] = counter.system.exclusive;
+    if (c.system.exclusive > 0 || c.system.reset > 0 || c.system.clock.tick > 0) {
+      auto system{j["system"].to<JsonObject>()};
+      if (c.system.exclusive > 0)
+        system["exclusive"] = c.system.exclusive;
 
-    if (counter.system.reset > 0)
-      system["reset"] = counter.system.reset;
+      if (c.system.reset > 0)
+        system["reset"] = c.system.reset;
 
-    if (counter.system.clock.tick > 0) {
-      JsonObject clock = system["clock"].to<JsonObject>();
-      clock["tick"]    = counter.system.clock.tick;
+      if (c.system.clock.tick > 0) {
+        auto clock{system["clock"].to<JsonObject>()};
+        clock["tick"] = c.system.clock.tick;
+      }
     }
-  }
 
-  if (counter.errors > 0)
-    json["errors"] = counter.errors;
-}
+    if (c.error > 0)
+      j["error"] = c.error;
+  }};
 
-void addStatistics(JsonObject json, const V2Link::Port::Counter& counter) {
-  json["packets"] = counter.packets;
+  auto m{json["midi"].to<JsonObject>()};
+  auto in{m["input"].to<JsonObject>()};
+  counter(in, s.input);
 
-  if (counter.midi > 0)
-    json["midi"] = counter.midi;
-
-  if (counter.pulse > 0)
-    json["pulse"] = counter.pulse;
-
-  if (counter.number > 0)
-    json["number"] = counter.number;
-
-  if (counter.errors > 0)
-    json["errors"] = counter.errors;
+  auto out{m["output"].to<JsonObject>()};
+  counter(out, s.output);
 }
 
 // Send the current data as a SystemExclusive, JSON message.
@@ -392,34 +385,40 @@ void V2Device::sendReply(V2MIDI::Transport* transport) {
   }
 
   {
-    JsonObject jsonSystem = jsonDevice["system"].to<JsonObject>();
+    auto jsonSystem{jsonDevice["system"].to<JsonObject>()};
     if (usb.name)
       jsonSystem["name"] = usb.name;
 
     {
-      JsonObject jsonBoot = jsonSystem["boot"].to<JsonObject>();
-      jsonBoot["uptime"]  = float(millis()) / 1000.f;
-      jsonBoot["id"]      = _boot.id;
+      auto j{jsonSystem["boot"].to<JsonObject>()};
+      j["uptime"] = float(millis()) / 1000.f;
+      j["id"]     = _boot.id;
     }
 
     {
-      JsonObject jsonFirmware = jsonSystem["firmware"].to<JsonObject>();
+      auto j{jsonSystem["connection"].to<JsonObject>()};
+      j["transport"] = transport->name;
+      addStatistics(j, statistics);
+      exportSystem(jsonSystem);
+    }
+
+    {
+      auto j{jsonSystem["firmware"].to<JsonObject>()};
       if (system.download)
-        jsonFirmware["download"] = system.download;
+        j["download"] = system.download;
 
       if (system.configure)
-        jsonFirmware["configure"] = system.configure;
+        j["configure"] = system.configure;
 
-      jsonFirmware["id"]    = V2DeviceMetadata.id;
-      jsonFirmware["board"] = V2DeviceMetadata.board;
-      jsonFirmware["hash"]  = _firmware.hash;
-      jsonFirmware["start"] = V2Base::Memory::Firmware::getStart();
-      jsonFirmware["size"]  = V2Base::Memory::Firmware::getSize();
+      j["id"]    = V2DeviceMetadata.id;
+      j["board"] = V2DeviceMetadata.board;
+      j["hash"]  = _firmware.hash;
+      j["start"] = V2Base::Memory::Firmware::getStart();
+      j["size"]  = V2Base::Memory::Firmware::getSize();
     }
 
     {
-      JsonObject jsonHardware = jsonSystem["hardware"].to<JsonObject>();
-
+      auto jsonHardware{jsonSystem["hardware"].to<JsonObject>()};
       {
         // The end of the bootloader contains an array of four offsets/pointers.
         const uint32_t* info = (uint32_t*)V2Base::Memory::Firmware::getStart() - 4;
@@ -444,107 +443,125 @@ void V2Device::sendReply(V2MIDI::Transport* transport) {
         jsonHardware["revision"] = system.revision;
 
       {
-        JsonObject jsonRam = jsonHardware["ram"].to<JsonObject>();
-        jsonRam["size"]    = V2Base::Memory::RAM::getSize();
-        jsonRam["free"]    = V2Base::Memory::RAM::getFree();
+        auto j{jsonHardware["ram"].to<JsonObject>()};
+        j["size"] = V2Base::Memory::RAM::getSize();
+        j["free"] = V2Base::Memory::RAM::getFree();
       }
 
       {
-        JsonObject jsonFlash = jsonHardware["flash"].to<JsonObject>();
-        jsonFlash["size"]    = V2Base::Memory::Flash::getSize();
+        auto j{jsonHardware["flash"].to<JsonObject>()};
+        j["size"] = V2Base::Memory::Flash::getSize();
       }
 
       {
-        JsonObject jsonEeprom = jsonHardware["eeprom"].to<JsonObject>();
-        jsonEeprom["size"]    = V2Base::Memory::EEPROM::getSize();
-        jsonEeprom["used"]    = readEEPROM(true);
+        auto j{jsonHardware["eeprom"].to<JsonObject>()};
+        j["size"] = V2Base::Memory::EEPROM::getSize();
+        j["used"] = readEEPROM(true);
       }
 
       {
-        JsonObject jsonUsb = jsonHardware["usb"].to<JsonObject>();
+        auto jsonUsb{jsonHardware["usb"].to<JsonObject>()};
         {
-          JsonObject jsonHost  = jsonUsb["connection"].to<JsonObject>();
-          jsonHost["active"]   = usb.midi.connected();
-          jsonHost["sequence"] = usb.midi.getConnectionSequence();
+          JsonObject j  = jsonUsb["connection"].to<JsonObject>();
+          j["active"]   = usb.midi.connected();
+          j["sequence"] = usb.midi.getConnectionSequence();
         }
 
         jsonUsb["vid"] = _eeprom.usb.vid > 0 ? _eeprom.usb.vid : usb.vid;
         jsonUsb["pid"] = _eeprom.usb.pid > 0 ? _eeprom.usb.pid : usb.pid;
 
         if (usb.ports.standard > 0) {
-          JsonObject jsonPorts  = jsonUsb["ports"].to<JsonObject>();
-          jsonPorts["standard"] = usb.ports.standard;
+          auto j{jsonUsb["ports"].to<JsonObject>()};
+          j["standard"] = usb.ports.standard;
           if (usb.ports.fixed)
-            jsonPorts["fixed"] = usb.ports.fixed;
+            j["fixed"] = usb.ports.fixed;
           if (usb.ports.access > 0)
-            jsonPorts["access"] = usb.ports.access;
-          jsonPorts["current"] = usb.ports.current;
+            j["access"] = usb.ports.access;
+          j["current"] = usb.ports.current;
+        }
+
+        addStatistics(jsonUsb, usb.midi.statistics);
+      }
+
+      if (link) {
+        auto statistics{[](JsonObject port, const V2Link::Port::Counters& c) {
+          if (c.input.packet > 0 || c.output.packet > 0) {
+            auto j{port["packet"].to<JsonObject>()};
+            if (c.input.packet > 0)
+              j["input"] = c.input.packet;
+
+            if (c.output.packet > 0)
+              j["output"] = c.output.packet;
+          }
+
+          if (c.input.pulse > 0 || c.output.pulse > 0) {
+            auto j{port["pulse"].to<JsonObject>()};
+            if (c.input.pulse > 0)
+              j["input"] = c.input.pulse;
+
+            if (c.output.pulse > 0)
+              j["output"] = c.output.pulse;
+          }
+
+          if (c.input.number > 0 || c.output.number > 0) {
+            auto j{port["number"].to<JsonObject>()};
+            if (c.input.number > 0)
+              j["input"] = c.input.number;
+
+            if (c.output.number > 0)
+              j["output"] = c.output.number;
+          }
+
+          if (c.input.error > 0 || c.output.error > 0) {
+            auto j{port["error"].to<JsonObject>()};
+            if (c.input.error > 0)
+              j["input"] = c.input.error;
+
+            if (c.output.error > 0)
+              j["output"] = c.output.error;
+          }
+        }};
+
+        if (link->plug) {
+          auto j{jsonHardware["plug"].to<JsonObject>()};
+          statistics(j, link->plug->counter);
+          addStatistics(j, link->plug->statistics);
+        }
+
+        if (link->socket) {
+          auto j{jsonHardware["socket"].to<JsonObject>()};
+          statistics(j, link->socket->counter);
+          addStatistics(j, link->socket->statistics);
+        }
+
+        if (link->socketNode) {
+          auto j{jsonHardware["socketNode"].to<JsonObject>()};
+          statistics(j, link->socketNode->counter);
+          addStatistics(j, link->socketNode->statistics);
         }
       }
-    }
 
-    JsonObject jsonMidi   = jsonSystem["midi"].to<JsonObject>();
-    jsonMidi["transport"] = transport->name;
-
-    {
-      JsonObject jsonIn = jsonMidi["input"].to<JsonObject>();
-      addStatistics(jsonIn, _statistics.input);
-
-      JsonObject jsonOut = jsonMidi["output"].to<JsonObject>();
-      addStatistics(jsonOut, _statistics.output);
-    }
-
-    if (link) {
-      JsonObject jsonLink = jsonSystem["link"].to<JsonObject>();
-      if (link->plug) {
-        auto plug{jsonLink["plug"].to<JsonObject>()};
-        auto input{plug["input"].to<JsonObject>()};
-        addStatistics(input, link->plug->statistics.input);
-        auto output{plug["output"].to<JsonObject>()};
-        addStatistics(output, link->plug->statistics.output);
-      }
-
-      if (link->socket) {
-        auto socket{jsonLink["socket"].to<JsonObject>()};
-        auto input{socket["input"].to<JsonObject>()};
-        addStatistics(input, link->socket->statistics.input);
-        auto output{socket["output"].to<JsonObject>()};
-        addStatistics(output, link->socket->statistics.output);
-      }
-
-      if (link->socketNode) {
-        auto socketNode{jsonLink["socketNode"].to<JsonObject>()};
-        auto input{socketNode["input"].to<JsonObject>()};
-        addStatistics(input, link->socketNode->statistics.input);
-        auto output{socketNode["output"].to<JsonObject>()};
-        addStatistics(output, link->socketNode->statistics.output);
+      if (serial) {
+        auto j{jsonHardware["serial"].to<JsonObject>()};
+        addStatistics(j, serial->statistics);
       }
     }
-
-    if (serial) {
-      JsonObject jsonSerial = jsonSystem["serial"].to<JsonObject>();
-      jsonSerial["input"]   = serial->statistics.input;
-      jsonSerial["output"]  = serial->statistics.output;
-    }
-
-    exportSystem(jsonSystem);
   }
 
   JsonArray settings = jsonDevice["settings"].to<JsonArray>();
   exportSettings(settings);
 
   {
-    JsonObject config  = jsonDevice["configuration"].to<JsonObject>();
-    config["#usb"]     = "USB Settings";
-    JsonObject jsonUsb = config["usb"].to<JsonObject>();
-    jsonUsb["#name"]   = "Device Name";
-    jsonUsb["name"]    = _eeprom.usb.name;
+    auto config{jsonDevice["configuration"].to<JsonObject>()};
+    config["#usb"] = "USB Settings";
 
-    jsonUsb["#vid"] = "USB Vendor ID";
-    jsonUsb["vid"]  = _eeprom.usb.vid;
-
-    jsonUsb["#pid"] = "USB Product ID";
-    jsonUsb["pid"]  = _eeprom.usb.pid;
+    auto jsonUsb{config["usb"].to<JsonObject>()};
+    jsonUsb["#name"] = "Device Name";
+    jsonUsb["name"]  = _eeprom.usb.name;
+    jsonUsb["#vid"]  = "USB Vendor ID";
+    jsonUsb["vid"]   = _eeprom.usb.vid;
+    jsonUsb["#pid"]  = "USB Product ID";
+    jsonUsb["pid"]   = _eeprom.usb.pid;
 
     if (usb.ports.standard > 0) {
       jsonUsb["#ports"] = "Number of MIDI ports";
@@ -640,12 +657,10 @@ void V2Device::handleSystemExclusive(V2MIDI::Transport* transport, const uint8_t
 
     // The data is enclosed in an object to prevent name clashes with the
     // calling convention.
-    JsonObject config = jsonDevice["configuration"];
-    if (config) {
-      JsonObject jsonUsb = config["usb"];
-      if (jsonUsb) {
-        const char* n = jsonUsb["name"];
-        if (n) {
+
+    if (auto config{jsonDevice["configuration"]}; config) {
+      if (auto jsonUsb{config["usb"]}; jsonUsb) {
+        if (const char* n = jsonUsb["name"]; n) {
           if (strlen(n) > 1 && strlen(n) < 32) {
             usb.name = n;
             strcpy(_eeprom.usb.name, n);

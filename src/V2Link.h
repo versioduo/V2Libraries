@@ -109,17 +109,16 @@ public:
   class Port : public V2MIDI::Transport {
   public:
     struct Counter {
-      uint32_t midi{};
       uint32_t pulse{};
       uint32_t number{};
-      uint32_t packets{};
-      uint32_t errors{};
+      uint32_t packet{};
+      uint32_t error{};
     };
 
-    struct {
+    struct Counters {
       Counter input;
       Counter output;
-    } statistics;
+    } counter;
 
     Port() = delete;
     constexpr Port(Uart* uart, uint8_t pinTx = 0) : Transport{"link"}, _uart(uart), _pinTx(pinTx) {}
@@ -154,7 +153,7 @@ public:
             _uart->read();
 
           _timeoutUsec = 0;
-          statistics.input.errors++;
+          counter.input.error++;
         }
 
         return false;
@@ -162,18 +161,18 @@ public:
 
       _timeoutUsec = 0;
       _uart->readBytes((uint8_t*)&p, 5);
-      statistics.input.packets++;
+      counter.input.packet++;
       switch (p.type) {
         case Packet::Type::MIDI:
-          statistics.input.midi++;
+          statistics.input.packet++;
           break;
 
         case Packet::Type::Pulse:
-          statistics.input.pulse++;
+          counter.input.pulse++;
           break;
 
         case Packet::Type::Number:
-          statistics.input.number++;
+          counter.input.number++;
           break;
       }
       return true;
@@ -189,26 +188,25 @@ public:
 
       _usec = micros();
 
-      if (_uart->availableForWrite() < 5) {
-        statistics.output.errors++;
+      if (_uart->availableForWrite() < 5)
         return false;
-      }
 
       _uart->write((const uint8_t*)&p, 5);
-      statistics.output.packets++;
+      counter.output.packet++;
       switch (p.type) {
         case Packet::Type::MIDI:
-          statistics.output.midi++;
+          statistics.output.packet++;
           break;
 
         case Packet::Type::Pulse:
-          statistics.output.pulse++;
+          counter.output.pulse++;
           break;
 
         case Packet::Type::Number:
-          statistics.output.number++;
+          counter.output.number++;
           break;
       }
+
       return true;
     }
 
@@ -216,8 +214,8 @@ public:
       return false;
     }
 
-    // Used for replies during V2Device dispatch, can only send to address 0.
-    auto send(const V2MIDI::Packet& midi) -> bool override {
+    // Used for replies during V2Device dispatch, it can only send to address 0.
+    auto send(V2MIDI::Packet& midi) -> bool override {
       return send(Packet(0, midi));
     }
 

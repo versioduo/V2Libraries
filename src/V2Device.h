@@ -6,7 +6,7 @@
 #include <V2Link.h>
 #include <V2MIDI.h>
 
-class V2Device : public V2MIDI::Port {
+class V2Device : public V2MIDI::Device {
 public:
   // Device metadata stored in a global variable.
   struct Metadata {
@@ -100,7 +100,7 @@ public:
   //
   // Default USB MIDI port 0.
   constexpr V2Device() : V2Device(16 * 1024) {}
-  constexpr V2Device(uint32_t sysexSize) : Port(0, sysexSize), led(PIN_LED_ONBOARD, &_ledTimer), _ledTimer(3, 1000) {}
+  constexpr V2Device(uint32_t sysexSize) : Device(0, sysexSize), led(PIN_LED_ONBOARD, &_ledTimer), _ledTimer(3, 1000) {}
 
   // Read the configuration from the EEPROM, initialize the bootup data which
   // might be carried over to the next reboot.

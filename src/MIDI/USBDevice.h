@@ -7,14 +7,24 @@
 namespace V2MIDI {
   class USBDevice : public Transport, public V2Base::USBDevice {
   public:
-    USBDevice() : Transport{"usb"} {}
+    constexpr USBDevice() : Transport{"usb"} {}
 
-    auto send(const Packet& midi) -> bool override {
-      return V2Base::USBDevice::send((const uint8_t*)&midi);
+    auto send(Packet& midi) -> bool override {
+      if (V2Base::USBDevice::send((const uint8_t*)&midi)) {
+        statistics.output.packet++;
+        return true;
+      }
+
+      return false;
     }
 
     auto receive(Packet& midi) -> bool override {
-      return V2Base::USBDevice::receive((uint8_t*)&midi);
+      if (V2Base::USBDevice::receive((uint8_t*)&midi)) {
+        statistics.input.packet++;
+        return true;
+      };
+
+      return false;
     }
   };
 }
