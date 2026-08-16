@@ -12,17 +12,6 @@ namespace V2MIDI {
     Device() = delete;
     constexpr Device(uint8_t index) : Port{"device"}, _portIndex{index} {}
 
-    void begin() {
-      // Buffer to store an incoming and outgoing SysEx messages. The buffer needs
-      // to be able to carry a complete message. The message always starts with
-      // 0xf0 (SystemExclusive) and ends with 0xf7 (SystemExclusiveEnd), all other
-      // bytes carry 7-bit only.
-      //
-      // If no buffer is provided, incoming SysEx messages are discarded.
-      _sysex.in.buffer  = (uint8_t*)malloc(_sysexSize);
-      _sysex.out.buffer = (uint8_t*)malloc(_sysexSize);
-    }
-
     // During dispatch(), replies can be sent back to the given 'port'.
     void dispatch(Port* port, Packet* packet) {
       statistics.input.packet++;
@@ -96,8 +85,8 @@ namespace V2MIDI {
 
         case Packet::Status::SystemExclusive: {
           statistics.input.system.exclusive++;
-          handleSystemExclusive(port, _sysex.in.buffer, _sysex.in.length);
-          handleSystemExclusive(_sysex.in.buffer, _sysex.in.length);
+          handleSystemExclusive(port, _sysex.in.buffer.data(), _sysex.in.length);
+          handleSystemExclusive(_sysex.in.buffer.data(), _sysex.in.length);
         } break;
 
         case Packet::Status::SystemReset:
@@ -166,7 +155,7 @@ namespace V2MIDI {
 
     // Get the raw buffer to copy the SysEx message into.
     uint8_t* getSystemExclusiveBuffer() {
-      return _sysex.out.buffer;
+      return _sysex.out.buffer.data();
     }
 
     // Prepare SysEx message to chunk into packets. Send as many packets as possible,
@@ -304,9 +293,9 @@ namespace V2MIDI {
   private:
     struct {
       struct {
-        uint8_t* buffer{};
-        uint32_t length{};
-        bool     appending{};
+        std::array<uint8_t, _sysexSize> buffer{};
+        uint32_t                        length{};
+        bool                            appending{};
 
         void reset() {
           length    = 0;
@@ -315,10 +304,10 @@ namespace V2MIDI {
       } in;
 
       struct {
-        Port*    port{};
-        uint8_t* buffer{};
-        uint32_t length{};
-        uint32_t position{};
+        Port*                           port{};
+        std::array<uint8_t, _sysexSize> buffer{};
+        uint32_t                        length{};
+        uint32_t                        position{};
 
         void reset() {
           length   = 0;
@@ -350,19 +339,19 @@ namespace V2MIDI {
           }
 
           // Used in the middle of a SysEx packet stream to transport a single byte instead of three.
-          if (_sysex.in.length + 1 > _sysexSize) {
+          if (_sysex.in.length + 1 > _sysex.in.buffer.size()) {
             statistics.input.error++;
             _sysex.in.reset();
             return false;
           }
 
-          _sysex.in.buffer[_sysex.in.length++] = packet->data[0];
+          _sysex.in.buffer.data()[_sysex.in.length++] = packet->data[0];
           return false;
 
         // Start of a new SysEx stream, or append data to the current stream.
         case Packet::CodeIndex::SystemExclusiveStart:
           // Not enough space to store the stream.
-          if (_sysex.in.length + 3 > _sysexSize) {
+          if (_sysex.in.length + 3 > _sysex.in.buffer.size()) {
             statistics.input.error++;
             _sysex.in.reset();
             return false;
@@ -380,9 +369,9 @@ namespace V2MIDI {
             _sysex.in.appending = true;
           }
 
-          _sysex.in.buffer[_sysex.in.length++] = packet->data[0];
-          _sysex.in.buffer[_sysex.in.length++] = packet->data[1];
-          _sysex.in.buffer[_sysex.in.length++] = packet->data[2];
+          _sysex.in.buffer.data()[_sysex.in.length++] = packet->data[0];
+          _sysex.in.buffer.data()[_sysex.in.length++] = packet->data[1];
+          _sysex.in.buffer.data()[_sysex.in.length++] = packet->data[2];
           return false;
 
         // End of SysEx stream with various lengths.
@@ -402,13 +391,13 @@ namespace V2MIDI {
           }
 
           // Not enough space to store the stream.
-          if (_sysex.in.length + 1 > _sysexSize) {
+          if (_sysex.in.length + 1 > _sysex.in.buffer.size()) {
             statistics.input.error++;
             _sysex.in.reset();
             return false;
           }
 
-          _sysex.in.buffer[_sysex.in.length++] = packet->data[0];
+          _sysex.in.buffer.data()[_sysex.in.length++] = packet->data[0];
           break;
 
         case Packet::CodeIndex::SystemExclusiveEnd2:
@@ -420,7 +409,7 @@ namespace V2MIDI {
           }
 
           // Not enough space to store the stream.
-          if (_sysex.in.length + 2 > _sysexSize) {
+          if (_sysex.in.length + 2 > _sysex.in.buffer.size()) {
             statistics.input.error++;
             _sysex.in.reset();
             return false;
@@ -435,8 +424,8 @@ namespace V2MIDI {
               return false;
           }
 
-          _sysex.in.buffer[_sysex.in.length++] = packet->data[0];
-          _sysex.in.buffer[_sysex.in.length++] = packet->data[1];
+          _sysex.in.buffer.data()[_sysex.in.length++] = packet->data[0];
+          _sysex.in.buffer.data()[_sysex.in.length++] = packet->data[1];
           break;
 
         case Packet::CodeIndex::SystemExclusiveEnd3:
@@ -448,7 +437,7 @@ namespace V2MIDI {
           }
 
           // Not enough space to store the stream.
-          if (_sysex.in.length + 3 > _sysexSize) {
+          if (_sysex.in.length + 3 > _sysex.in.buffer.size()) {
             statistics.input.error++;
             _sysex.in.reset();
             return false;
@@ -463,9 +452,9 @@ namespace V2MIDI {
               return false;
           }
 
-          _sysex.in.buffer[_sysex.in.length++] = packet->data[0];
-          _sysex.in.buffer[_sysex.in.length++] = packet->data[1];
-          _sysex.in.buffer[_sysex.in.length++] = packet->data[2];
+          _sysex.in.buffer.data()[_sysex.in.length++] = packet->data[0];
+          _sysex.in.buffer.data()[_sysex.in.length++] = packet->data[1];
+          _sysex.in.buffer.data()[_sysex.in.length++] = packet->data[2];
           break;
 
         default:

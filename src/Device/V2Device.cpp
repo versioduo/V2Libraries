@@ -67,7 +67,6 @@ bool V2Device::readEEPROM(bool dryrun) {
 }
 
 void V2Device::begin() {
-  V2MIDI::Device::begin();
   usb.midi.begin();
 
   // The priority needs to be lower than the SERCOM priorities.
