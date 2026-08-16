@@ -163,7 +163,7 @@ void V2Device::loop() {
 }
 
 // Reply with message to indicate that we are ready for the next packet.
-void V2Device::sendFirmwareStatus(V2MIDI::Transport* transport, const char* status) {
+void V2Device::sendFirmwareStatus(V2MIDI::Port* port, const char* status) {
   uint8_t* reply = getSystemExclusiveBuffer();
   uint32_t len   = 0;
 
@@ -179,7 +179,7 @@ void V2Device::sendFirmwareStatus(V2MIDI::Transport* transport, const char* stat
   len += serializeJson(json, (char*)reply + len, 1024);
 
   reply[len++] = (uint8_t)V2MIDI::Packet::Status::SystemExclusiveEnd;
-  sendSystemExclusive(transport, len);
+  sendSystemExclusive(port, len);
 }
 
 static int8_t utf8Codepoint(const uint8_t* utf8, uint32_t* codepointp) {
@@ -280,8 +280,8 @@ static uint32_t escapeJSON(const uint8_t* jsonBuffer, uint32_t jsonLen, uint8_t*
   return bufferLen;
 }
 
-void addStatistics(JsonObject json, const V2MIDI::Transport::Statistics& s) {
-  auto counter{[](JsonObject j, const V2MIDI::Transport::Counter& c) {
+void addStatistics(JsonObject json, const V2MIDI::Port::Statistics& s) {
+  auto counter{[](JsonObject j, const V2MIDI::Port::Counter& c) {
     j["packet"] = c.packet;
 
     if (c.note > 0)
@@ -332,7 +332,7 @@ void addStatistics(JsonObject json, const V2MIDI::Transport::Statistics& s) {
 }
 
 // Send the current data as a SystemExclusive, JSON message.
-void V2Device::sendReply(V2MIDI::Transport* transport) {
+void V2Device::sendReply(V2MIDI::Port* port) {
   uint8_t* reply = getSystemExclusiveBuffer();
   uint32_t len   = 0;
 
@@ -397,7 +397,7 @@ void V2Device::sendReply(V2MIDI::Transport* transport) {
 
     {
       auto j{jsonSystem["connection"].to<JsonObject>()};
-      j["transport"] = transport->name;
+      j["port"] = port->name;
       addStatistics(j, statistics);
       exportSystem(jsonSystem);
     }
@@ -443,9 +443,23 @@ void V2Device::sendReply(V2MIDI::Transport* transport) {
         jsonHardware["revision"] = system.revision;
 
       {
-        auto j{jsonHardware["ram"].to<JsonObject>()};
-        j["size"] = V2Base::Memory::RAM::getSize();
-        j["free"] = V2Base::Memory::RAM::getFree();
+        auto ram{jsonHardware["ram"].to<JsonObject>()};
+        ram["size"] = V2Base::Memory::RAM::size();
+        ram["free"] = V2Base::Memory::RAM::free();
+        {
+          auto j{ram["data"].to<JsonObject>()};
+          j["size"]        = V2Base::Memory::RAM::Data::size();
+          j["initialized"] = V2Base::Memory::RAM::Data::Initialized::size();
+        }
+        {
+          auto j{ram["heap"].to<JsonObject>()};
+          j["size"]      = V2Base::Memory::RAM::Heap::size();
+          j["allocated"] = V2Base::Memory::RAM::Heap::allocated();
+        }
+        {
+          auto j{ram["stack"].to<JsonObject>()};
+          j["size"] = V2Base::Memory::RAM::Stack::size();
+        }
       }
 
       {
@@ -484,9 +498,9 @@ void V2Device::sendReply(V2MIDI::Transport* transport) {
       }
 
       if (link) {
-        auto statistics{[](JsonObject port, const V2Link::Port::Counters& c) {
+        auto statistics{[](JsonObject p, const V2Link::Port::Counters& c) {
           if (c.input.packet > 0 || c.output.packet > 0) {
-            auto j{port["packet"].to<JsonObject>()};
+            auto j{p["packet"].to<JsonObject>()};
             if (c.input.packet > 0)
               j["input"] = c.input.packet;
 
@@ -495,7 +509,7 @@ void V2Device::sendReply(V2MIDI::Transport* transport) {
           }
 
           if (c.input.pulse > 0 || c.output.pulse > 0) {
-            auto j{port["pulse"].to<JsonObject>()};
+            auto j{p["pulse"].to<JsonObject>()};
             if (c.input.pulse > 0)
               j["input"] = c.input.pulse;
 
@@ -504,7 +518,7 @@ void V2Device::sendReply(V2MIDI::Transport* transport) {
           }
 
           if (c.input.number > 0 || c.output.number > 0) {
-            auto j{port["number"].to<JsonObject>()};
+            auto j{p["number"].to<JsonObject>()};
             if (c.input.number > 0)
               j["input"] = c.input.number;
 
@@ -513,7 +527,7 @@ void V2Device::sendReply(V2MIDI::Transport* transport) {
           }
 
           if (c.input.error > 0 || c.output.error > 0) {
-            auto j{port["error"].to<JsonObject>()};
+            auto j{p["error"].to<JsonObject>()};
             if (c.input.error > 0)
               j["input"] = c.input.error;
 
@@ -523,27 +537,27 @@ void V2Device::sendReply(V2MIDI::Transport* transport) {
         }};
 
         if (link->plug) {
-          auto j{jsonHardware["plug"].to<JsonObject>()};
+          auto j{jsonHardware[link->plug->name].to<JsonObject>()};
           statistics(j, link->plug->counter);
           addStatistics(j, link->plug->statistics);
         }
 
         if (link->socket) {
-          auto j{jsonHardware["socket"].to<JsonObject>()};
+          auto j{jsonHardware[link->socket->name].to<JsonObject>()};
           statistics(j, link->socket->counter);
           addStatistics(j, link->socket->statistics);
         }
 
         if (link->socketNode) {
-          auto j{jsonHardware["socketNode"].to<JsonObject>()};
+          auto j{jsonHardware[link->socketNode->name].to<JsonObject>()};
           statistics(j, link->socketNode->counter);
           addStatistics(j, link->socketNode->statistics);
         }
       }
 
-      if (serial) {
-        auto j{jsonHardware["serial"].to<JsonObject>()};
-        addStatistics(j, serial->statistics);
+      for (const auto& p : ports) {
+        auto j{jsonHardware[p->name].to<JsonObject>()};
+        addStatistics(j, p->statistics);
       }
     }
   }
@@ -582,17 +596,17 @@ void V2Device::sendReply(V2MIDI::Transport* transport) {
     jsonDevice.remove("output");
 
   {
-    uint8_t  jsonBuffer[_sysexSize];
-    uint32_t jsonLen = serializeJson(json, (char*)jsonBuffer, _sysexSize);
-    len += escapeJSON(jsonBuffer, jsonLen, reply + len, _sysexSize - len);
+    std::array<uint8_t, _sysexSize> b;
+    uint32_t                        l{serializeJson(json, b.data(), b.size())};
+    len += escapeJSON(b.data(), l, reply + len, b.size() - len);
   }
 
   reply[len++] = (uint8_t)V2MIDI::Packet::Status::SystemExclusiveEnd;
-  sendSystemExclusive(transport, len);
+  sendSystemExclusive(port, len);
 }
 
 // Handle a SystemExclusive, JSON request from the host.
-void V2Device::handleSystemExclusive(V2MIDI::Transport* transport, const uint8_t* buffer, uint32_t len) {
+void V2Device::handleSystemExclusive(V2MIDI::Port* port, const uint8_t* buffer, uint32_t len) {
   if (len < 24)
     return;
 
@@ -616,7 +630,7 @@ void V2Device::handleSystemExclusive(V2MIDI::Transport* transport, const uint8_t
 
   if (jsonDevice["method"] == "getAll") {
     json.clear();
-    sendReply(transport);
+    sendReply(port);
     return;
   }
 
@@ -636,7 +650,7 @@ void V2Device::handleSystemExclusive(V2MIDI::Transport* transport, const uint8_t
     if (!jsonDevice["channel"].isNull())
       handleSwitchChannel(jsonDevice["channel"]);
     json.clear();
-    sendReply(transport);
+    sendReply(port);
     return;
 
   } else if (jsonDevice["method"] == "reboot") {
@@ -697,7 +711,7 @@ void V2Device::handleSystemExclusive(V2MIDI::Transport* transport, const uint8_t
 
     // Reply with the updated configuration.
     json.clear();
-    sendReply(transport);
+    sendReply(port);
     return;
 
   } else if (jsonDevice["method"] == "writeFirmware") {
@@ -707,7 +721,7 @@ void V2Device::handleSystemExclusive(V2MIDI::Transport* transport, const uint8_t
     if (firmware) {
       uint32_t offset = firmware["offset"];
       if (offset % V2Base::Memory::Flash::getBlockSize() != 0) {
-        sendFirmwareStatus(transport, "invalidOffset");
+        sendFirmwareStatus(port, "invalidOffset");
         return;
       }
 
@@ -729,7 +743,7 @@ void V2Device::handleSystemExclusive(V2MIDI::Transport* transport, const uint8_t
         V2Base::Memory::Firmware::Secondary::copyBootloader();
 
         if (V2Base::Memory::Firmware::Secondary::verify(offset + blockLen, hash)) {
-          sendFirmwareStatus(transport, "success");
+          sendFirmwareStatus(port, "success");
 
           // Flush system exclusive message, loop() is no longer called.
           uint32_t usec = V2Base::getUsec();
@@ -751,10 +765,10 @@ void V2Device::handleSystemExclusive(V2MIDI::Transport* transport, const uint8_t
           V2Base::Memory::Firmware::Secondary::activate();
         }
 
-        sendFirmwareStatus(transport, "hashMismatch");
+        sendFirmwareStatus(port, "hashMismatch");
 
       } else {
-        sendFirmwareStatus(transport, "success");
+        sendFirmwareStatus(port, "success");
       }
     }
 

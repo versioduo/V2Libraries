@@ -1,16 +1,16 @@
 #pragma once
 #include "Clock.h"
 #include "Packet.h"
-#include "Transport.h"
+#include "Port.h"
 #include <cstdlib>
 
 namespace V2MIDI {
   // Transport-independent MIDI functional interface. Supports message parsing/dispatching,
   // system exclusive buffering/streaming, packet statistics.
-  class Device : public Transport {
+  class Device : public Port {
   public:
     Device() = delete;
-    constexpr Device(uint8_t index, uint32_t sysexSize) : Transport{"device"}, _portIndex{index}, _sysexSize{sysexSize} {}
+    constexpr Device(uint8_t index) : Port{"device"}, _portIndex{index} {}
 
     void begin() {
       // Buffer to store an incoming and outgoing SysEx messages. The buffer needs
@@ -23,8 +23,8 @@ namespace V2MIDI {
       _sysex.out.buffer = (uint8_t*)malloc(_sysexSize);
     }
 
-    // During dispatch(), replies can be sent back to the given 'transport'.
-    void dispatch(Transport* transport, Packet* packet) {
+    // During dispatch(), replies can be sent back to the given 'port'.
+    void dispatch(Port* port, Packet* packet) {
       statistics.input.packet++;
 
       if (!storeSystemExclusive(packet))
@@ -96,7 +96,7 @@ namespace V2MIDI {
 
         case Packet::Status::SystemExclusive: {
           statistics.input.system.exclusive++;
-          handleSystemExclusive(transport, _sysex.in.buffer, _sysex.in.length);
+          handleSystemExclusive(port, _sysex.in.buffer, _sysex.in.length);
           handleSystemExclusive(_sysex.in.buffer, _sysex.in.length);
         } break;
 
@@ -171,7 +171,7 @@ namespace V2MIDI {
 
     // Prepare SysEx message to chunk into packets. Send as many packets as possible,
     // the remaining packets will be sent with loopSystemExclusive().
-    void sendSystemExclusive(Transport* transport, uint32_t length) {
+    void sendSystemExclusive(Port* port, uint32_t length) {
       if (_sysex.out.length > 0) {
         statistics.output.error++;
         return;
@@ -192,9 +192,9 @@ namespace V2MIDI {
         return;
       }
 
-      _sysex.out.transport = transport;
-      _sysex.out.length    = length;
-      _sysex.out.position  = 0;
+      _sysex.out.port     = port;
+      _sysex.out.length   = length;
+      _sysex.out.position = 0;
 
       // Send as many packets as possible.
       while (loopSystemExclusive() > 0)
@@ -206,7 +206,7 @@ namespace V2MIDI {
       _sysex.out.reset();
     }
 
-    // Send the next packet over the specified transport. Returns:
+    // Send the next packet over the specified port. Returns:
     //  0: nothing to do,
     // -1: sending failed,
     //  1: there are remaining packets.
@@ -250,12 +250,12 @@ namespace V2MIDI {
           break;
       }
 
-      if (!_sysex.out.transport) {
+      if (!_sysex.out.port) {
         if (!handleSend(&_packet))
           return -1;
 
       } else {
-        if (!_sysex.out.transport->send(_packet))
+        if (!_sysex.out.port->send(_packet))
           return -1;
       }
 
@@ -267,14 +267,14 @@ namespace V2MIDI {
       }
 
       statistics.output.system.exclusive++;
-      _sysex.out.transport = nullptr;
-      _sysex.out.length    = 0;
+      _sysex.out.port   = nullptr;
+      _sysex.out.length = 0;
       return 0;
     }
 
   protected:
-    const uint8_t  _portIndex;
-    const uint32_t _sysexSize;
+    const uint8_t             _portIndex;
+    static constexpr uint32_t _sysexSize{18 * 1024};
 
     friend class Packet;
     virtual void handleNote(uint8_t channel, uint8_t note, uint8_t velocity) {}
@@ -294,8 +294,8 @@ namespace V2MIDI {
     // All messages besides system exclusive.
     virtual void handlePacket(Packet* packet) {}
 
-    // During dispatch, replies are sent back to the originating transport.
-    virtual void handleSystemExclusive(Transport* transport, const uint8_t* buffer, uint32_t len) {}
+    // During dispatch, replies are sent back to the originating port.
+    virtual void handleSystemExclusive(Port* port, const uint8_t* buffer, uint32_t len) {}
 
     virtual bool handleSend(Packet* packet) {
       return false;
@@ -315,10 +315,10 @@ namespace V2MIDI {
       } in;
 
       struct {
-        Transport* transport{};
-        uint8_t*   buffer{};
-        uint32_t   length{};
-        uint32_t   position{};
+        Port*    port{};
+        uint8_t* buffer{};
+        uint32_t length{};
+        uint32_t position{};
 
         void reset() {
           length   = 0;

@@ -1,13 +1,13 @@
 #pragma once
 
 #include "Packet.h"
-#include "Transport.h"
+#include "Port.h"
 #include <V2Base.h>
 
 namespace V2MIDI {
-  class USBDevice : public Transport, public V2Base::USBDevice {
+  class USBDevice : public Port, public V2Base::USBDevice {
   public:
-    constexpr USBDevice() : Transport{"usb"} {}
+    constexpr USBDevice() : Port{"usb"} {}
 
     auto send(Packet& midi) -> bool override {
       if (V2Base::USBDevice::send((const uint8_t*)&midi)) {

@@ -81,9 +81,8 @@ public:
     V2MIDI::USBDevice midi{};
   } usb;
 
-  V2Link* link{};
-
-  V2MIDI::SerialDevice* serial{};
+  V2Link*                    link{};
+  std::vector<V2MIDI::Port*> ports;
 
   // Built-in LED.
   V2LED::Basic led;
@@ -98,9 +97,8 @@ public:
   // The maximum system exclusive message size. It needs to carry at least the firmware
   // update packet of 8k bytes -> base64 encoded -> wrapped in a JSON object -> ~12kb.
   //
-  // Default USB MIDI port 0.
-  constexpr V2Device() : V2Device(16 * 1024) {}
-  constexpr V2Device(uint32_t sysexSize) : Device(0, sysexSize), led(PIN_LED_ONBOARD, &_ledTimer), _ledTimer(3, 1000) {}
+  // The default USB MIDI port 0.
+  constexpr V2Device() : Device(0), led(PIN_LED_ONBOARD, &_ledTimer), _ledTimer(3, 1000) {}
 
   // Read the configuration from the EEPROM, initialize the bootup data which
   // might be carried over to the next reboot.
@@ -196,9 +194,9 @@ private:
 
   V2Base::Timer::Periodic _ledTimer;
 
-  void sendReply(V2MIDI::Transport* transport);
-  void sendFirmwareStatus(V2MIDI::Transport* transport, const char* status);
-  void handleSystemExclusive(V2MIDI::Transport* transport, const uint8_t* buffer, uint32_t len) override;
+  void sendReply(V2MIDI::Port* port);
+  void sendFirmwareStatus(V2MIDI::Port* port, const char* status);
+  void handleSystemExclusive(V2MIDI::Port* port, const uint8_t* buffer, uint32_t len) override;
   bool readEEPROM(bool dryrun = false);
 };
 

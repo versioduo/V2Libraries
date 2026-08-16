@@ -7,7 +7,7 @@
 #include "MIDI/GM.h"
 #include "MIDI/Notes.h"
 #include "MIDI/Packet.h"
+#include "MIDI/Port.h"
 #include "MIDI/RPN.h"
 #include "MIDI/SerialDevice.h"
-#include "MIDI/Transport.h"
 #include "MIDI/USBDevice.h"

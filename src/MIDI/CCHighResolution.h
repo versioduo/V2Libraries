@@ -1,6 +1,6 @@
 #pragma once
 #include "CC.h"
-#include "Transport.h"
+#include "Port.h"
 
 namespace V2MIDI::CC {
   // Handle high-resolution controllers, MSB + LSB, 14 bits values.
@@ -124,7 +124,7 @@ namespace V2MIDI::CC {
       return true;
     }
 
-    bool send(Transport* transport, uint8_t channel, uint8_t controller) {
+    bool send(Port* transport, uint8_t channel, uint8_t controller) {
       Packet packet{};
       if (!transport->send(*packet.setControlChange(channel, controller, getMSB(controller))))
         return false;

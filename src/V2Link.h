@@ -106,7 +106,7 @@ public:
   };
   static_assert(sizeof(Packet) == 5);
 
-  class Port : public V2MIDI::Transport {
+  class Port : public V2MIDI::Port {
   public:
     struct Counter {
       uint32_t pulse{};
@@ -121,7 +121,7 @@ public:
     } counter;
 
     Port() = delete;
-    constexpr Port(Uart* uart, uint8_t pinTx = 0) : Transport{"link"}, _uart(uart), _pinTx(pinTx) {}
+    constexpr Port(Uart* uart, uint8_t pinTx, const std::string name) : V2MIDI::Port{name}, _uart(uart), _pinTx(pinTx) {}
 
     auto begin() {
       _uart->begin(3000000);
@@ -208,10 +208,6 @@ public:
       }
 
       return true;
-    }
-
-    auto receive(V2MIDI::Packet& midi) -> bool override {
-      return false;
     }
 
     // Used for replies during V2Device dispatch, it can only send to address 0.

@@ -1,13 +1,13 @@
 #pragma once
 #include "Packet.h"
-#include "Transport.h"
+#include "Port.h"
 #include <V2Base.h>
 
 namespace V2MIDI {
-  class SerialDevice : public Transport {
+  class SerialDevice : public Port {
   public:
     SerialDevice() = delete;
-    constexpr SerialDevice(Uart* uart) : Transport{"serial"}, _uart(uart) {}
+    constexpr SerialDevice(Uart* uart, const std::string name) : Port{name}, _uart(uart) {}
 
     auto begin() {
       _uart->begin(31250);

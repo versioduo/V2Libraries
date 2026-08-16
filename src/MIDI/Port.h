@@ -3,7 +3,7 @@
 #include <string>
 
 namespace V2MIDI {
-  class Transport {
+  class Port {
   public:
     struct Counter {
       uint32_t packet{};
@@ -31,8 +31,8 @@ namespace V2MIDI {
       Counter output;
     } statistics;
 
-    Transport() = delete;
-    Transport(const std::string& name) : name{name} {}
+    Port() = delete;
+    Port(const std::string& name) : name{name} {}
 
     virtual auto receive(Packet& midi) -> bool {
       abort();
