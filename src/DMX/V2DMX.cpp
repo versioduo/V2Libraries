@@ -32,39 +32,29 @@ static constexpr uint8_t dmaBlockInit[11]{
 };
 
 void V2DMX::begin() {
-  _dmaBuffer = (DMABuffer*)malloc(sizeof(DMABuffer));
+  _spi.begin();
 
-  // Build SPI bus from SERCOM.
-  //
-  // SPIClass.begin() applies the board config to all given pins, which might not
-  // match our configuration. Just pass the same pin to all of them, to make sure
-  // we do not touch anything else. Our pin will be switched to the SERCOM after
-  // begin().
-  if (!_spi)
-    _spi = new SPIClass(_sercom.sercom, _sercom.pin, _sercom.pin, _sercom.pin, _sercom.padTx, SERCOM_RX_PAD_3);
+  // SPIClass.begin() applies the board config to all given pins. We just passed
+  // one and the same pin to all of them, to make sure we do not touch unrelated
+  // ones.
+  pinPeripheral(_sercom.pin, _sercom.pinFunc);
 
-  // Configure SPI, the transaction will never stop.
-  _spi->begin();
-  _spi->beginTransaction(SPISettings(250000, LSBFIRST, SPI_MODE0));
-
-  // Switch our pin to SERCOM, begin() set all given pins to the board config.
-  if (_sercom.sercom)
-    pinPeripheral(_sercom.pin, _sercom.pinFunc);
-
+  // The transaction will never stop.
+  _spi.beginTransaction(SPISettings(250000, LSBFIRST, SPI_MODE0));
   reset();
 }
 
 void V2DMX::reset() {
-  while (_spi->isBusy())
+  while (_spi.isBusy())
     yield();
 
   // Break + Mark + Start Code '0', LSB first.
-  memcpy(_dmaBuffer, dmaHeader, sizeof(dmaHeader));
+  memcpy(&_dmaBuffer, dmaHeader, sizeof(dmaHeader));
 
   // 64 blocks of 11 bytes, each block containing 8 channel values:
   // one start bit, value '0', two stop bits.
   for (uint8_t i = 0; i < 64; i++)
-    memcpy(_dmaBuffer->blocks[i], dmaBlockInit, sizeof(dmaBlockInit));
+    memcpy(_dmaBuffer.blocks[i], dmaBlockInit, sizeof(dmaBlockInit));
 
   memset(_channels.values, 0, sizeof(_channels.values));
   _nChannels = 0;
@@ -95,7 +85,7 @@ void V2DMX::loop() {
       if (i * 8 > _nChannels)
         break;
 
-      updateDMABlock(_dmaBuffer->blocks[i], _channels.blocks[i]);
+      updateDMABlock(_dmaBuffer.blocks[i], _channels.blocks[i]);
     }
 
     _updateDMA = false;
@@ -109,13 +99,13 @@ void V2DMX::loop() {
   // send new incoming updates as fast as possible (sync an incoming update with
   // the start of a new DMX data frame), and not needlessly wait for an unchanged
   // frame to finish transmitting.
-  if (!_transfer && (unsigned long)(micros() - _transferUsec) < 400 * 1000)
+  if (!_transfer && (uint32_t)(micros() - _transferUsec) < 400 * 1000)
     return;
 
-  if (_spi->isBusy())
+  if (_spi.isBusy())
     return;
 
-  _spi->transfer(_dmaBuffer, NULL, sizeof(DMABuffer), false);
+  _spi.transfer(&_dmaBuffer, nullptr, sizeof(DMABuffer), false);
   _transfer     = false;
   _transferUsec = micros();
 }

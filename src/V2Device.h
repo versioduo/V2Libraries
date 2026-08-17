@@ -14,7 +14,7 @@ public:
     const std::string_view id;
 
     // The version will always be presented to the user as a simple decimal number.
-    const uint32_t version;
+    const uint16_t version;
 
     // The fully-qualified board name.
     const std::string_view board;
