@@ -58,7 +58,7 @@ public:
   // Custom USB IDs, initialized with the board specified values.
   struct {
     // Custom USB device name.
-    const char* name{};
+    std::string name;
 
     uint16_t vid{USB_VID};
     uint16_t pid{USB_PID};
@@ -194,8 +194,8 @@ private:
 
   V2Base::Timer::Periodic _ledTimer;
 
-  void sendReply(V2MIDI::Port* port);
-  void sendFirmwareStatus(V2MIDI::Port* port, const char* status);
+  void sendReply(V2MIDI::Port& port);
+  void sendFirmwareStatus(V2MIDI::Port& port, const char* status);
   void handleSystemExclusive(V2MIDI::Port* port, const uint8_t* buffer, uint32_t len) override;
   bool readEEPROM(bool dryrun = false);
 };

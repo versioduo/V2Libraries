@@ -116,7 +116,7 @@ void V2Device::begin() {
 
   // Set USB device name, the default is provided by the board package, the metadata
   // provides a product name, a custom name might be stored in the EEPROM.
-  const char* name = usb.name ? usb.name : metadata.product;
+  const char* name = !usb.name.empty() ? usb.name.c_str() : metadata.product;
   usb.midi.setName(name);
 
   if (system.configure && memcmp(system.configure, "https://", 8) == 0)
@@ -162,23 +162,25 @@ void V2Device::loop() {
 }
 
 // Reply with message to indicate that we are ready for the next packet.
-void V2Device::sendFirmwareStatus(V2MIDI::Port* port, const char* status) {
-  uint8_t* reply = getSystemExclusiveBuffer();
-  uint32_t len   = 0;
-
-  // 0x7d == SysEx research/private ID
-  reply[len++] = (uint8_t)V2MIDI::Packet::Status::SystemExclusive;
-  reply[len++] = 0x7d;
-
+void V2Device::sendFirmwareStatus(V2MIDI::Port& port, const char* status) {
   JsonDocument json;
-  JsonObject   jsonDevice = json["com.versioduo.device"].to<JsonObject>();
-  jsonDevice["token"]     = _boot.id;
-  JsonObject jsonFirmware = jsonDevice["firmware"].to<JsonObject>();
-  jsonFirmware["status"]  = status;
-  len += serializeJson(json, (char*)reply + len, 1024);
+  auto         jsonDevice{json["com.versioduo.device"].to<JsonObject>()};
+  jsonDevice["token"] = _boot.id;
+  {
+    auto j{jsonDevice["firmware"].to<JsonObject>()};
+    j["status"] = status;
+  }
+  {
+    std::string s;
+    serializeJson(json, s);
 
-  reply[len++] = (uint8_t)V2MIDI::Packet::Status::SystemExclusiveEnd;
-  sendSystemExclusive(port, len);
+    auto& reply{systemExclusiveBuffer()};
+    reply.push_back(uint8_t(V2MIDI::Packet::Status::SystemExclusive));
+    reply.push_back(0x7d); // 0x7d == SysEx research/private ID
+    reply.append(s);
+    reply.push_back(uint8_t(V2MIDI::Packet::Status::SystemExclusiveEnd));
+  }
+  sendSystemExclusive(port);
 }
 
 static int8_t utf8Codepoint(const uint8_t* utf8, uint32_t* codepointp) {
@@ -239,13 +241,11 @@ static int8_t utf8Codepoint(const uint8_t* utf8, uint32_t* codepointp) {
 }
 
 // Escape unicode to fit into a 7 bit byte stream.
-static uint32_t escapeJSON(const uint8_t* jsonBuffer, uint32_t jsonLen, uint8_t* buffer, uint32_t size) {
-  uint32_t bufferLen = 0;
-
-  for (uint32_t i = 0; i < jsonLen; i++) {
-    if (jsonBuffer[i] > 0x7f) {
-      uint32_t codepoint;
-      uint8_t  len = utf8Codepoint(jsonBuffer + i, &codepoint);
+static auto appendEscapedJSON(const std::string& in, std::string& out) {
+  for (uint32_t i{}; i < in.size(); i++) {
+    if (in[i] > 0x7f) {
+      uint32_t codepoint{};
+      uint8_t  len = utf8Codepoint((const uint8_t*)in.data() + i, &codepoint);
       if (len < 0)
         continue;
 
@@ -253,30 +253,23 @@ static uint32_t escapeJSON(const uint8_t* jsonBuffer, uint32_t jsonLen, uint8_t*
       i += len - 1;
 
       if (codepoint < 0xffff) {
-        if (bufferLen + 7 > size)
-          return 0;
-
-        bufferLen += sprintf((char*)buffer + bufferLen, "\\u%04x", codepoint);
+        char hex[8];
+        sprintf(hex, "\\u%04x", codepoint);
+        out.append(hex);
 
       } else {
-        if (bufferLen + 13 > size)
-          return 0;
-
         codepoint -= 0x10000;
-        uint16_t surrogate1 = (codepoint >> 10) + 0xd800;
-        uint16_t surrogate2 = (codepoint & 0x3ff) + 0xdc00;
-        bufferLen += sprintf((char*)buffer + bufferLen, "\\u%04x\\u%04x", surrogate1, surrogate2);
+        auto surrogate1{uint16_t((codepoint >> 10) + 0xd800)};
+        auto surrogate2{uint16_t((codepoint & 0x3ff) + 0xdc00)};
+        char hex[16];
+        sprintf(hex, "\\u%04x\\u%04x", surrogate1, surrogate2);
+        out.append(hex);
       }
 
     } else {
-      if (bufferLen >= size)
-        return 0;
-
-      buffer[bufferLen++] = jsonBuffer[i];
+      out.push_back(in[i]);
     }
   }
-
-  return bufferLen;
 }
 
 void addStatistics(JsonObject json, const V2MIDI::Port::Statistics& s) {
@@ -331,20 +324,10 @@ void addStatistics(JsonObject json, const V2MIDI::Port::Statistics& s) {
 }
 
 // Send the current data as a SystemExclusive, JSON message.
-void V2Device::sendReply(V2MIDI::Port* port) {
-  uint8_t* reply = getSystemExclusiveBuffer();
-  uint32_t len   = 0;
-
-  // 0x7d == SysEx research/private ID
-  reply[len++] = (uint8_t)V2MIDI::Packet::Status::SystemExclusive;
-  reply[len++] = 0x7d;
-
+void V2Device::sendReply(V2MIDI::Port& port) {
   JsonDocument json;
-  JsonObject   jsonDevice = json["com.versioduo.device"].to<JsonObject>();
-
-  // Requests and replies contain the device's current bootID.
+  auto         jsonDevice{json["com.versioduo.device"].to<JsonObject>()};
   jsonDevice["token"] = _boot.id;
-
   {
     JsonObject jsonMeta = jsonDevice["metadata"].to<JsonObject>();
     if (metadata.product)
@@ -368,24 +351,21 @@ void V2Device::sendReply(V2MIDI::Port* port) {
     jsonMeta["version"] = V2DeviceMetadata.version;
     exportMetadata(jsonMeta);
   }
-
   {
-    JsonArray jsonLinks = jsonDevice["links"].to<JsonArray>();
+    auto jsonLinks{jsonDevice["links"].to<JsonArray>()};
     exportLinks(jsonLinks);
   }
-
   {
-    JsonObject jsonHelp = jsonDevice["help"].to<JsonObject>();
+    auto jsonHelp{jsonDevice["help"].to<JsonObject>()};
     if (help.device)
       jsonHelp["device"] = help.device;
 
     if (help.configuration)
       jsonHelp["configuration"] = help.configuration;
   }
-
   {
     auto jsonSystem{jsonDevice["system"].to<JsonObject>()};
-    if (usb.name)
+    if (!usb.name.empty())
       jsonSystem["name"] = usb.name;
 
     {
@@ -396,7 +376,7 @@ void V2Device::sendReply(V2MIDI::Port* port) {
 
     {
       auto j{jsonSystem["connection"].to<JsonObject>()};
-      j["port"] = port->name;
+      j["port"] = port.name;
       addStatistics(j, statistics);
       exportSystem(jsonSystem);
     }
@@ -560,10 +540,10 @@ void V2Device::sendReply(V2MIDI::Port* port) {
       }
     }
   }
-
-  JsonArray settings = jsonDevice["settings"].to<JsonArray>();
-  exportSettings(settings);
-
+  {
+    auto settings{jsonDevice["settings"].to<JsonArray>()};
+    exportSettings(settings);
+  }
   {
     auto config{jsonDevice["configuration"].to<JsonObject>()};
     config["#usb"] = "USB Settings";
@@ -583,25 +563,29 @@ void V2Device::sendReply(V2MIDI::Port* port) {
 
     exportConfiguration(config);
   }
-
-  JsonObject input = jsonDevice["input"].to<JsonObject>();
-  exportInput(input);
-  if (input.begin() == input.end())
-    jsonDevice.remove("input");
-
-  JsonObject output = jsonDevice["output"].to<JsonObject>();
-  exportOutput(output);
-  if (output.begin() == output.end())
-    jsonDevice.remove("output");
-
   {
-    std::array<uint8_t, _sysexSize> b;
-    uint32_t                        l{serializeJson(json, b.data(), b.size())};
-    len += escapeJSON(b.data(), l, reply + len, b.size() - len);
+    auto input{jsonDevice["input"].to<JsonObject>()};
+    exportInput(input);
+    if (input.begin() == input.end())
+      jsonDevice.remove("input");
   }
+  {
+    auto output{jsonDevice["output"].to<JsonObject>()};
+    exportOutput(output);
+    if (output.begin() == output.end())
+      jsonDevice.remove("output");
+  }
+  {
+    std::string s;
+    serializeJson(json, s);
 
-  reply[len++] = (uint8_t)V2MIDI::Packet::Status::SystemExclusiveEnd;
-  sendSystemExclusive(port, len);
+    auto& reply{systemExclusiveBuffer()};
+    reply.push_back(uint8_t(V2MIDI::Packet::Status::SystemExclusive));
+    reply.push_back(0x7d); // 0x7d == SysEx research/private ID
+    appendEscapedJSON(s, reply);
+    reply.push_back(uint8_t(V2MIDI::Packet::Status::SystemExclusiveEnd));
+  }
+  sendSystemExclusive(port);
 }
 
 // Handle a SystemExclusive, JSON request from the host.
@@ -623,13 +607,13 @@ void V2Device::handleSystemExclusive(V2MIDI::Port* port, const uint8_t* buffer, 
     return;
 
   // Only handle requests for our interface.
-  JsonObject jsonDevice = json["com.versioduo.device"];
+  JsonObject jsonDevice{json["com.versioduo.device"]};
   if (!jsonDevice)
     return;
 
   if (jsonDevice["method"] == "getAll") {
     json.clear();
-    sendReply(port);
+    sendReply(*port);
     return;
   }
 
@@ -649,7 +633,7 @@ void V2Device::handleSystemExclusive(V2MIDI::Port* port, const uint8_t* buffer, 
     if (!jsonDevice["channel"].isNull())
       handleSwitchChannel(jsonDevice["channel"]);
     json.clear();
-    sendReply(port);
+    sendReply(*port);
     return;
 
   } else if (jsonDevice["method"] == "reboot") {
@@ -668,19 +652,16 @@ void V2Device::handleSystemExclusive(V2MIDI::Port* port, const uint8_t* buffer, 
   } else if (jsonDevice["method"] == "writeConfiguration") {
     // Write the configuration the the EEPROM.
 
-    // The data is enclosed in an object to prevent name clashes with the
-    // calling convention.
-
+    // The data is enclosed in an object to prevent possible name clashes with the calling convention.
     if (auto config{jsonDevice["configuration"]}; config) {
       if (auto jsonUsb{config["usb"]}; jsonUsb) {
-        if (const char* n = jsonUsb["name"]; n) {
-          if (strlen(n) > 1 && strlen(n) < 32) {
-            usb.name = n;
-            strcpy(_eeprom.usb.name, n);
+        if (!jsonUsb["name"].isNull()) {
+          std::fill(_eeprom.usb.name, _eeprom.usb.name + sizeof(_eeprom.usb.name), 0);
+          usb.name.clear();
 
-          } else {
-            usb.name = NULL;
-            memset(_eeprom.usb.name, 0, sizeof(_eeprom.usb.name));
+          if (!name.size() < sizeof(_eeprom.usb.name) - 1) {
+            usb.name = jsonUsb["name"].as<std::string_view>();
+            std::copy(usb.name.begin(), usb.name.end(), _eeprom.usb.name);
           }
         }
 
@@ -710,7 +691,7 @@ void V2Device::handleSystemExclusive(V2MIDI::Port* port, const uint8_t* buffer, 
 
     // Reply with the updated configuration.
     json.clear();
-    sendReply(port);
+    sendReply(*port);
     return;
 
   } else if (jsonDevice["method"] == "writeFirmware") {
@@ -720,7 +701,7 @@ void V2Device::handleSystemExclusive(V2MIDI::Port* port, const uint8_t* buffer, 
     if (firmware) {
       uint32_t offset = firmware["offset"];
       if (offset % V2Base::Memory::Flash::getBlockSize() != 0) {
-        sendFirmwareStatus(port, "invalidOffset");
+        sendFirmwareStatus(*port, "invalidOffset");
         return;
       }
 
@@ -742,7 +723,7 @@ void V2Device::handleSystemExclusive(V2MIDI::Port* port, const uint8_t* buffer, 
         V2Base::Memory::Firmware::Secondary::copyBootloader();
 
         if (V2Base::Memory::Firmware::Secondary::verify(offset + blockLen, hash)) {
-          sendFirmwareStatus(port, "success");
+          sendFirmwareStatus(*port, "success");
 
           // Flush system exclusive message, loop() is no longer called.
           uint32_t usec = V2Base::getUsec();
@@ -764,10 +745,10 @@ void V2Device::handleSystemExclusive(V2MIDI::Port* port, const uint8_t* buffer, 
           V2Base::Memory::Firmware::Secondary::activate();
         }
 
-        sendFirmwareStatus(port, "hashMismatch");
+        sendFirmwareStatus(*port, "hashMismatch");
 
       } else {
-        sendFirmwareStatus(port, "success");
+        sendFirmwareStatus(*port, "success");
       }
     }
 

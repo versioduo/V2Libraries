@@ -2,6 +2,7 @@
 #include "Clock.h"
 #include "Packet.h"
 #include "Port.h"
+#include <algorithm>
 #include <cstdlib>
 
 namespace V2MIDI {
@@ -12,461 +13,418 @@ namespace V2MIDI {
     Device() = delete;
     constexpr Device(uint8_t index) : Port{"device"}, _portIndex{index} {}
 
-    // During dispatch(), replies can be sent back to the given 'port'.
-    void dispatch(Port* port, Packet* packet) {
-      statistics.input.packet++;
+    // Replies can be sent back to the originating port.
+    auto dispatch(Port* port, Packet* packet) -> void;
 
-      if (!storeSystemExclusive(packet))
-        return;
-
-      if (packet->type() != Packet::Status::SystemExclusive)
-        handlePacket(packet);
-
-      switch (packet->type()) {
-        case Packet::Status::NoteOn:
-          statistics.input.note++;
-          handleNote(packet->channel(), packet->getNote(), packet->getNoteVelocity());
-          break;
-
-        case Packet::Status::NoteOff:
-          statistics.input.noteOff++;
-          handleNoteOff(packet->channel(), packet->getNote(), packet->getNoteVelocity());
-          break;
-
-        case Packet::Status::Aftertouch:
-          statistics.input.aftertouch++;
-          handleAftertouch(packet->channel(), packet->getAftertouchNote(), packet->getAftertouch());
-          break;
-
-        case Packet::Status::ControlChange:
-          statistics.input.control++;
-          handleControlChange(packet->channel(), packet->getController(), packet->getControllerValue());
-          break;
-
-        case Packet::Status::ProgramChange:
-          statistics.input.program++;
-          handleProgramChange(packet->channel(), packet->getProgram());
-          break;
-
-        case Packet::Status::AftertouchChannel:
-          statistics.input.aftertouchChannel++;
-          handleAftertouchChannel(packet->channel(), packet->getAftertouchChannel());
-          break;
-
-        case Packet::Status::PitchBend:
-          statistics.input.pitchbend++;
-          handlePitchBend(packet->channel(), packet->getPitchBend());
-          break;
-
-        case Packet::Status::SystemSongPosition:
-          handleSongPosition(packet->getSongPosition());
-          break;
-
-        case Packet::Status::SystemSongSelect:
-          handleSongSelect(packet->getSongSelect());
-          break;
-
-        case Packet::Status::SystemClock:
-          statistics.input.system.clock.tick++;
-          handleClock(Clock::Event::Tick);
-          break;
-
-        case Packet::Status::SystemStart:
-          handleClock(Clock::Event::Start);
-          break;
-
-        case Packet::Status::SystemContinue:
-          handleClock(Clock::Event::Continue);
-          break;
-
-        case Packet::Status::SystemStop:
-          handleClock(Clock::Event::Stop);
-          break;
-
-        case Packet::Status::SystemExclusive: {
-          statistics.input.system.exclusive++;
-          handleSystemExclusive(port, _sysex.in.buffer.data(), _sysex.in.length);
-          handleSystemExclusive(_sysex.in.buffer.data(), _sysex.in.length);
-        } break;
-
-        case Packet::Status::SystemReset:
-          statistics.input.system.reset++;
-          handleSystemReset();
-          break;
-      }
-    }
-
-    auto send(Packet& p) -> bool override {
-      return send(&p);
-    }
+    // The buffer to copy the SysEx message into.
+    auto systemExclusiveBuffer() -> std::string&;
 
     // Set the port's number in the outgoing packet and updates the statistics.
-    bool send(Packet* p) {
-      // Do not interrupt a system exclusive transfer.
-      if (_sysex.out.length > 0)
-        return false;
-
-      p->port = _portIndex;
-      if (!handleSend(p))
-        return false;
-
-      statistics.output.packet++;
-
-      switch (p->type()) {
-        case Packet::Status::NoteOn:
-          statistics.output.note++;
-          break;
-
-        case Packet::Status::NoteOff:
-          statistics.output.noteOff++;
-          break;
-
-        case Packet::Status::Aftertouch:
-          statistics.output.aftertouch++;
-          break;
-
-        case Packet::Status::ControlChange:
-          statistics.output.control++;
-          break;
-
-        case Packet::Status::ProgramChange:
-          statistics.output.program++;
-          break;
-
-        case Packet::Status::AftertouchChannel:
-          statistics.output.aftertouchChannel++;
-          break;
-
-        case Packet::Status::PitchBend:
-          statistics.output.pitchbend++;
-          break;
-
-        case Packet::Status::SystemClock:
-          statistics.output.system.clock.tick++;
-          break;
-
-        case Packet::Status::SystemReset:
-          statistics.output.system.reset++;
-          break;
-      }
-
-      return true;
-    }
-
-    // Get the raw buffer to copy the SysEx message into.
-    uint8_t* getSystemExclusiveBuffer() {
-      return _sysex.out.buffer.data();
+    auto send(Packet& p) -> bool override;
+    auto send(Packet* p) -> bool {
+      return send(*p);
     }
 
     // Prepare SysEx message to chunk into packets. Send as many packets as possible,
     // the remaining packets will be sent with loopSystemExclusive().
-    void sendSystemExclusive(Port* port, uint32_t length) {
-      if (_sysex.out.length > 0) {
-        statistics.output.error++;
-        return;
-      }
+    auto sendSystemExclusive(Port& port) -> void;
 
-      if (length < 2) {
-        statistics.output.error++;
-        return;
-      }
-
-      if (_sysex.out.buffer[0] != static_cast<uint8_t>(Packet::Status::SystemExclusive)) {
-        statistics.output.error++;
-        return;
-      }
-
-      if (_sysex.out.buffer[length - 1] != static_cast<uint8_t>(Packet::Status::SystemExclusiveEnd)) {
-        statistics.output.error++;
-        return;
-      }
-
-      _sysex.out.port     = port;
-      _sysex.out.length   = length;
-      _sysex.out.position = 0;
-
-      // Send as many packets as possible.
-      while (loopSystemExclusive() > 0)
-        ;
-    }
-
-    void resetSystemExclusive() {
-      _sysex.in.reset();
-      _sysex.out.reset();
-    }
+    auto resetSystemExclusive() -> void;
 
     // Send the next packet over the specified port. Returns:
     //  0: nothing to do,
     // -1: sending failed,
     //  1: there are remaining packets.
-    int8_t loopSystemExclusive() {
-      if (_sysex.out.length == 0)
-        return 0;
-
-      Packet   _packet;
-      uint32_t remain{_sysex.out.length - _sysex.out.position};
-      switch (remain) {
-        case 1:
-          _packet.port      = _portIndex;
-          _packet.codeIndex = Packet::CodeIndex::SystemExclusiveEnd1;
-          _packet.data[0]   = _sysex.out.buffer[_sysex.out.position];
-          _packet.data[1]   = 0;
-          _packet.data[2]   = 0;
-          break;
-
-        case 2:
-          _packet.port      = _portIndex;
-          _packet.codeIndex = Packet::CodeIndex::SystemExclusiveEnd2;
-          _packet.data[0]   = _sysex.out.buffer[_sysex.out.position];
-          _packet.data[1]   = _sysex.out.buffer[_sysex.out.position + 1];
-          _packet.data[2]   = 0;
-          break;
-
-        case 3:
-          _packet.port      = _portIndex;
-          _packet.codeIndex = Packet::CodeIndex::SystemExclusiveEnd3;
-          _packet.data[0]   = _sysex.out.buffer[_sysex.out.position];
-          _packet.data[1]   = _sysex.out.buffer[_sysex.out.position + 1];
-          _packet.data[2]   = _sysex.out.buffer[_sysex.out.position + 2];
-          break;
-
-        default:
-          _packet.port      = _portIndex;
-          _packet.codeIndex = Packet::CodeIndex::SystemExclusiveStart;
-          _packet.data[0]   = _sysex.out.buffer[_sysex.out.position];
-          _packet.data[1]   = _sysex.out.buffer[_sysex.out.position + 1];
-          _packet.data[2]   = _sysex.out.buffer[_sysex.out.position + 2];
-          break;
-      }
-
-      if (!_sysex.out.port) {
-        if (!handleSend(&_packet))
-          return -1;
-
-      } else {
-        if (!_sysex.out.port->send(_packet))
-          return -1;
-      }
-
-      statistics.output.packet++;
-
-      if (remain > 3) {
-        _sysex.out.position += 3;
-        return 1;
-      }
-
-      statistics.output.system.exclusive++;
-      _sysex.out.port   = nullptr;
-      _sysex.out.length = 0;
-      return 0;
-    }
+    int8_t loopSystemExclusive();
 
   protected:
-    const uint8_t             _portIndex;
-    static constexpr uint32_t _sysexSize{18 * 1024};
-
-    friend class Packet;
-    virtual void handleNote(uint8_t channel, uint8_t note, uint8_t velocity) {}
-    virtual void handleNoteOff(uint8_t channel, uint8_t note, uint8_t velocity) {}
-    virtual void handleAftertouch(uint8_t channel, uint8_t note, uint8_t pressure) {}
-    virtual void handleControlChange(uint8_t channel, uint8_t controller, uint8_t value) {}
-    virtual void handleProgramChange(uint8_t channel, uint8_t value) {}
-    virtual void handleAftertouchChannel(uint8_t channel, uint8_t pressure) {}
-    virtual void handlePitchBend(uint8_t channel, int16_t value) {}
-    virtual void handleSongPosition(uint16_t beats) {}
-    virtual void handleSongSelect(uint8_t number) {}
-    virtual void handleClock(Clock::Event clock) {}
-    virtual void handleSystemExclusive(const uint8_t* buffer, uint32_t len) {}
-    virtual void handleSystemReset() {}
-    virtual void handleSwitchChannel(uint8_t channel) {}
+    virtual auto handleNote(uint8_t channel, uint8_t note, uint8_t velocity) -> void {}
+    virtual auto handleNoteOff(uint8_t channel, uint8_t note, uint8_t velocity) -> void {}
+    virtual auto handleAftertouch(uint8_t channel, uint8_t note, uint8_t pressure) -> void {}
+    virtual auto handleControlChange(uint8_t channel, uint8_t controller, uint8_t value) -> void {}
+    virtual auto handleProgramChange(uint8_t channel, uint8_t value) -> void {}
+    virtual auto handleAftertouchChannel(uint8_t channel, uint8_t pressure) -> void {}
+    virtual auto handlePitchBend(uint8_t channel, int16_t value) -> void {}
+    virtual auto handleSongPosition(uint16_t beats) -> void {}
+    virtual auto handleSongSelect(uint8_t number) -> void {}
+    virtual auto handleClock(Clock::Event clock) -> void {}
+    virtual auto handleSystemExclusive(const uint8_t* buffer, uint32_t len) -> void {}
+    virtual auto handleSystemReset() -> void {}
+    virtual auto handleSwitchChannel(uint8_t channel) -> void {}
 
     // All messages besides system exclusive.
-    virtual void handlePacket(Packet* packet) {}
+    virtual auto handlePacket(Packet* packet) -> void {}
 
     // During dispatch, replies are sent back to the originating port.
-    virtual void handleSystemExclusive(Port* port, const uint8_t* buffer, uint32_t len) {}
+    virtual auto handleSystemExclusive(Port* port, const uint8_t* buffer, uint32_t len) -> void {}
 
-    virtual bool handleSend(Packet* packet) {
+    virtual auto handleSend(Packet* packet) -> bool {
       return false;
     }
 
   private:
+    const uint8_t _portIndex;
+
     struct {
       struct {
-        std::array<uint8_t, _sysexSize> buffer{};
-        uint32_t                        length{};
-        bool                            appending{};
+        std::string buffer{};
+        bool        appending{};
 
         void reset() {
-          length    = 0;
+          buffer.clear();
           appending = false;
         }
       } in;
 
       struct {
-        Port*                           port{};
-        std::array<uint8_t, _sysexSize> buffer{};
-        uint32_t                        length{};
-        uint32_t                        position{};
+        Port*            port{};
+        std::string      buffer{};
+        std::string_view remain;
 
         void reset() {
-          length   = 0;
-          position = 0;
+          port = nullptr;
+          buffer.clear();
+          remain = {};
         }
       } out;
     } _sysex;
 
-    bool storeSystemExclusive(Packet* packet) {
-      switch (packet->codeIndex) {
-        case Packet::CodeIndex::SystemCommon2:
-        case Packet::CodeIndex::SystemCommon3:
-        case Packet::CodeIndex::NoteOff:
-        case Packet::CodeIndex::NoteOn:
-        case Packet::CodeIndex::Aftertouch:
-        case Packet::CodeIndex::ControlChange:
-        case Packet::CodeIndex::ProgramChange:
-        case Packet::CodeIndex::AftertouchChannel:
-        case Packet::CodeIndex::PitchBend:
-          // Return single packet message, discard any possible SysEx stream.
-          _sysex.in.reset();
-          return true;
+    bool storeSystemExclusive(Packet* packet);
+  };
+};
 
-        case Packet::CodeIndex::SingleByte:
-          // Single byte, like a system message.
-          if (!_sysex.in.appending) {
-            _sysex.in.reset();
-            return true;
-          }
+inline auto V2MIDI::Device::dispatch(Port* port, Packet* p) -> void {
+  statistics.input.packet++;
 
-          // Used in the middle of a SysEx packet stream to transport a single byte instead of three.
-          if (_sysex.in.length + 1 > _sysex.in.buffer.size()) {
-            statistics.input.error++;
-            _sysex.in.reset();
-            return false;
-          }
+  if (!storeSystemExclusive(p))
+    return;
 
-          _sysex.in.buffer.data()[_sysex.in.length++] = packet->data[0];
-          return false;
+  if (p->type() != Packet::Status::SystemExclusive)
+    handlePacket(p);
 
-        // Start of a new SysEx stream, or append data to the current stream.
-        case Packet::CodeIndex::SystemExclusiveStart:
-          // Not enough space to store the stream.
-          if (_sysex.in.length + 3 > _sysex.in.buffer.size()) {
-            statistics.input.error++;
-            _sysex.in.reset();
-            return false;
-          }
+  switch (p->type()) {
+    case Packet::Status::NoteOn:
+      statistics.input.note++;
+      handleNote(p->channel(), p->getNote(), p->getNoteVelocity());
+      break;
 
-          if (!_sysex.in.appending) {
-            _sysex.in.length = 0;
+    case Packet::Status::NoteOff:
+      statistics.input.noteOff++;
+      handleNoteOff(p->channel(), p->getNote(), p->getNoteVelocity());
+      break;
 
-            // Must be the start of a SysEx.
-            if (packet->data[0] != static_cast<uint8_t>(Packet::Status::SystemExclusive)) {
-              statistics.input.error++;
-              return false;
-            }
+    case Packet::Status::Aftertouch:
+      statistics.input.aftertouch++;
+      handleAftertouch(p->channel(), p->getAftertouchNote(), p->getAftertouch());
+      break;
 
-            _sysex.in.appending = true;
-          }
+    case Packet::Status::ControlChange:
+      statistics.input.control++;
+      handleControlChange(p->channel(), p->getController(), p->getControllerValue());
+      break;
 
-          _sysex.in.buffer.data()[_sysex.in.length++] = packet->data[0];
-          _sysex.in.buffer.data()[_sysex.in.length++] = packet->data[1];
-          _sysex.in.buffer.data()[_sysex.in.length++] = packet->data[2];
-          return false;
+    case Packet::Status::ProgramChange:
+      statistics.input.program++;
+      handleProgramChange(p->channel(), p->getProgram());
+      break;
 
-        // End of SysEx stream with various lengths.
-        case Packet::CodeIndex::SystemExclusiveEnd1:
-          // Invalid 'End' packet
-          if (packet->data[0] != static_cast<uint8_t>(Packet::Status::SystemExclusiveEnd)) {
-            statistics.input.error++;
-            _sysex.in.reset();
-            return false;
-          }
+    case Packet::Status::AftertouchChannel:
+      statistics.input.aftertouchChannel++;
+      handleAftertouchChannel(p->channel(), p->getAftertouchChannel());
+      break;
 
-          // 'End' packet without previous data, discarding.
-          if (!_sysex.in.appending) {
-            statistics.input.error++;
-            _sysex.in.reset();
-            return false;
-          }
+    case Packet::Status::PitchBend:
+      statistics.input.pitchbend++;
+      handlePitchBend(p->channel(), p->getPitchBend());
+      break;
 
-          // Not enough space to store the stream.
-          if (_sysex.in.length + 1 > _sysex.in.buffer.size()) {
-            statistics.input.error++;
-            _sysex.in.reset();
-            return false;
-          }
+    case Packet::Status::SystemSongPosition:
+      handleSongPosition(p->getSongPosition());
+      break;
 
-          _sysex.in.buffer.data()[_sysex.in.length++] = packet->data[0];
-          break;
+    case Packet::Status::SystemSongSelect:
+      handleSongSelect(p->getSongSelect());
+      break;
 
-        case Packet::CodeIndex::SystemExclusiveEnd2:
-          // Invalid 'End' packet.
-          if (packet->data[1] != static_cast<uint8_t>(Packet::Status::SystemExclusiveEnd)) {
-            statistics.input.error++;
-            _sysex.in.reset();
-            return false;
-          }
+    case Packet::Status::SystemClock:
+      statistics.input.system.clock.tick++;
+      handleClock(Clock::Event::Tick);
+      break;
 
-          // Not enough space to store the stream.
-          if (_sysex.in.length + 2 > _sysex.in.buffer.size()) {
-            statistics.input.error++;
-            _sysex.in.reset();
-            return false;
-          }
+    case Packet::Status::SystemStart:
+      handleClock(Clock::Event::Start);
+      break;
 
-          // Single 'End' packet.
-          if (!_sysex.in.appending) {
-            _sysex.in.length = 0;
+    case Packet::Status::SystemContinue:
+      handleClock(Clock::Event::Continue);
+      break;
 
-            // Must be an 'empty' SysEx.
-            if (packet->data[0] != static_cast<uint8_t>(Packet::Status::SystemExclusive))
-              return false;
-          }
+    case Packet::Status::SystemStop:
+      handleClock(Clock::Event::Stop);
+      break;
 
-          _sysex.in.buffer.data()[_sysex.in.length++] = packet->data[0];
-          _sysex.in.buffer.data()[_sysex.in.length++] = packet->data[1];
-          break;
+    case Packet::Status::SystemExclusive: {
+      statistics.input.system.exclusive++;
+      handleSystemExclusive(port, (uint8_t*)_sysex.in.buffer.data(), _sysex.in.buffer.size());
+      handleSystemExclusive((uint8_t*)_sysex.in.buffer.data(), _sysex.in.buffer.size());
+    } break;
 
-        case Packet::CodeIndex::SystemExclusiveEnd3:
-          // Invalid 'End' packet.
-          if (packet->data[2] != static_cast<uint8_t>(Packet::Status::SystemExclusiveEnd)) {
-            statistics.input.error++;
-            _sysex.in.reset();
-            return false;
-          }
+    case Packet::Status::SystemReset:
+      statistics.input.system.reset++;
+      handleSystemReset();
+      break;
+  }
+}
 
-          // Not enough space to store the stream.
-          if (_sysex.in.length + 3 > _sysex.in.buffer.size()) {
-            statistics.input.error++;
-            _sysex.in.reset();
-            return false;
-          }
+inline auto V2MIDI::Device::send(Packet& p) -> bool {
+  // Do not interrupt a system exclusive transfer.
+  if (!_sysex.out.buffer.empty())
+    return false;
 
-          // Single 'End' packet.
-          if (!_sysex.in.appending) {
-            _sysex.in.length = 0;
+  p.port = _portIndex;
+  if (!handleSend(&p))
+    return false;
 
-            // Must be a 'one byte' SysEx.
-            if (packet->data[0] != static_cast<uint8_t>(Packet::Status::SystemExclusive))
-              return false;
-          }
+  statistics.output.packet++;
 
-          _sysex.in.buffer.data()[_sysex.in.length++] = packet->data[0];
-          _sysex.in.buffer.data()[_sysex.in.length++] = packet->data[1];
-          _sysex.in.buffer.data()[_sysex.in.length++] = packet->data[2];
-          break;
+  switch (p.type()) {
+    case Packet::Status::NoteOn:
+      statistics.output.note++;
+      break;
 
-        default:
+    case Packet::Status::NoteOff:
+      statistics.output.noteOff++;
+      break;
+
+    case Packet::Status::Aftertouch:
+      statistics.output.aftertouch++;
+      break;
+
+    case Packet::Status::ControlChange:
+      statistics.output.control++;
+      break;
+
+    case Packet::Status::ProgramChange:
+      statistics.output.program++;
+      break;
+
+    case Packet::Status::AftertouchChannel:
+      statistics.output.aftertouchChannel++;
+      break;
+
+    case Packet::Status::PitchBend:
+      statistics.output.pitchbend++;
+      break;
+
+    case Packet::Status::SystemClock:
+      statistics.output.system.clock.tick++;
+      break;
+
+    case Packet::Status::SystemReset:
+      statistics.output.system.reset++;
+      break;
+  }
+
+  return true;
+}
+
+inline auto V2MIDI::Device::systemExclusiveBuffer() -> std::string& {
+  return _sysex.out.buffer;
+}
+
+inline auto V2MIDI::Device::sendSystemExclusive(Port& port) -> void {
+  if (_sysex.out.buffer.size() < 2) {
+    statistics.output.error++;
+    return;
+  }
+
+  if (_sysex.out.buffer.front() != uint8_t(Packet::Status::SystemExclusive)) {
+    statistics.output.error++;
+    return;
+  }
+
+  if (_sysex.out.buffer.back() != uint8_t(Packet::Status::SystemExclusiveEnd)) {
+    statistics.output.error++;
+    return;
+  }
+
+  _sysex.out.port   = &port;
+  _sysex.out.remain = _sysex.out.buffer;
+
+  // Send as many packets as possible.
+  while (loopSystemExclusive() > 0)
+    ;
+}
+
+inline auto V2MIDI::Device::resetSystemExclusive() -> void {
+  _sysex.in.reset();
+  _sysex.out.reset();
+}
+
+inline auto V2MIDI::Device::loopSystemExclusive() -> int8_t {
+  if (_sysex.out.buffer.empty())
+    return 0;
+
+  Packet _p;
+  switch (_sysex.out.remain.size()) {
+    case 1:
+      _p.port      = _portIndex;
+      _p.codeIndex = Packet::CodeIndex::SystemExclusiveEnd1;
+      _p.data[0]   = _sysex.out.remain.front();
+      _p.data[1]   = 0;
+      _p.data[2]   = 0;
+      break;
+
+    case 2:
+      _p.port      = _portIndex;
+      _p.codeIndex = Packet::CodeIndex::SystemExclusiveEnd2;
+      std::copy_n(_sysex.out.remain.begin(), 2, _p.data.begin());
+      _p.data[2] = 0;
+      break;
+
+    case 3:
+      _p.port      = _portIndex;
+      _p.codeIndex = Packet::CodeIndex::SystemExclusiveEnd3;
+      std::copy_n(_sysex.out.remain.begin(), 3, _p.data.begin());
+      break;
+
+    default:
+      _p.port      = _portIndex;
+      _p.codeIndex = Packet::CodeIndex::SystemExclusiveStart;
+      std::copy_n(_sysex.out.remain.begin(), 3, _p.data.begin());
+      break;
+  }
+
+  if (!_sysex.out.port) {
+    if (!handleSend(&_p))
+      return -1;
+
+  } else {
+    if (!_sysex.out.port->send(_p))
+      return -1;
+  }
+
+  statistics.output.packet++;
+
+  if (_sysex.out.remain.size() > 3) {
+    _sysex.out.remain.remove_prefix(3);
+    return 1;
+  }
+
+  statistics.output.system.exclusive++;
+  _sysex.out.reset();
+  return 0;
+}
+
+inline bool V2MIDI::Device::storeSystemExclusive(Packet* p) {
+  switch (p->codeIndex) {
+    case Packet::CodeIndex::SystemCommon2:
+    case Packet::CodeIndex::SystemCommon3:
+    case Packet::CodeIndex::NoteOff:
+    case Packet::CodeIndex::NoteOn:
+    case Packet::CodeIndex::Aftertouch:
+    case Packet::CodeIndex::ControlChange:
+    case Packet::CodeIndex::ProgramChange:
+    case Packet::CodeIndex::AftertouchChannel:
+    case Packet::CodeIndex::PitchBend:
+      // Return single packet message, discard any possible SysEx stream.
+      _sysex.in.reset();
+      return true;
+
+    case Packet::CodeIndex::SingleByte:
+      // Single byte, like a system message.
+      if (!_sysex.in.appending) {
+        _sysex.in.reset();
+        return true;
+      }
+
+      _sysex.in.buffer.push_back(p->data[0]);
+      return false;
+
+    // Start of a new SysEx stream, or append data to the current stream.
+    case Packet::CodeIndex::SystemExclusiveStart:
+      if (!_sysex.in.appending) {
+        _sysex.in.buffer.clear();
+
+        // Must be the start of a SysEx.
+        if (p->data[0] != uint8_t(Packet::Status::SystemExclusive)) {
           statistics.input.error++;
-          _sysex.in.reset();
+          return false;
+        }
+
+        _sysex.in.appending = true;
+      }
+
+      std::copy(p->data.begin(), p->data.end(), std::back_inserter(_sysex.in.buffer));
+      return false;
+
+    // End of SysEx stream with various lengths.
+    case Packet::CodeIndex::SystemExclusiveEnd1:
+      // Invalid 'End' packet
+      if (p->data[0] != uint8_t(Packet::Status::SystemExclusiveEnd)) {
+        statistics.input.error++;
+        _sysex.in.reset();
+        return false;
+      }
+
+      // 'End' packet without previous data, discarding.
+      if (!_sysex.in.appending) {
+        statistics.input.error++;
+        _sysex.in.reset();
+        return false;
+      }
+
+      _sysex.in.buffer.push_back(p->data[0]);
+      break;
+
+    case Packet::CodeIndex::SystemExclusiveEnd2:
+      // Invalid 'End' packet.
+      if (p->data[1] != uint8_t(Packet::Status::SystemExclusiveEnd)) {
+        statistics.input.error++;
+        _sysex.in.reset();
+        return false;
+      }
+
+      // Single 'End' packet.
+      if (!_sysex.in.appending) {
+        _sysex.in.buffer.clear();
+
+        // Must be an 'empty' SysEx.
+        if (p->data[0] != uint8_t(Packet::Status::SystemExclusive))
           return false;
       }
 
-      // Always return 'SystemExclusive' as type.
-      _sysex.in.appending = false;
-      packet->data[0]     = static_cast<uint8_t>(Packet::Status::SystemExclusive);
-      return true;
-    }
-  };
-};
+      std::copy(p->data.begin(), p->data.begin() + 2, std::back_inserter(_sysex.in.buffer));
+      break;
+
+    case Packet::CodeIndex::SystemExclusiveEnd3:
+      // Invalid 'End' packet.
+      if (p->data[2] != uint8_t(Packet::Status::SystemExclusiveEnd)) {
+        statistics.input.error++;
+        _sysex.in.reset();
+        return false;
+      }
+
+      // Single 'End' packet.
+      if (!_sysex.in.appending) {
+        _sysex.in.buffer.clear();
+
+        // Must be a 'one byte' SysEx.
+        if (p->data[0] != uint8_t(Packet::Status::SystemExclusive))
+          return false;
+      }
+
+      std::copy(p->data.begin(), p->data.end(), std::back_inserter(_sysex.in.buffer));
+      break;
+
+    default:
+      statistics.input.error++;
+      _sysex.in.reset();
+      return false;
+  }
+
+  // Always return 'SystemExclusive' as type.
+  _sysex.in.appending = false;
+  p->data[0]          = uint8_t(Packet::Status::SystemExclusive);
+  return true;
+}
