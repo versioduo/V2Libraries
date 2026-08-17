@@ -142,7 +142,7 @@ void V2Device::begin() {
   const uint16_t pid = _eeprom.usb.pid > 0 ? _eeprom.usb.pid : usb.pid;
   usb.midi.setVIDPID(vid, pid + usb.ports.current - 1);
 
-  usb.midi.setVersion(V2DeviceMetadata.version);
+  usb.midi.setVersion(metadata.firmware->version);
   usb.midi.attach();
 
   // Sleep mode IDLE, wait for interrupts.
@@ -348,7 +348,7 @@ void V2Device::sendReply(V2MIDI::Port& port) {
       jsonMeta["serial"] = serial;
     }
 
-    jsonMeta["version"] = V2DeviceMetadata.version;
+    jsonMeta["version"] = metadata.firmware->version;
     exportMetadata(jsonMeta);
   }
   {
@@ -389,8 +389,8 @@ void V2Device::sendReply(V2MIDI::Port& port) {
       if (system.configure)
         j["configure"] = system.configure;
 
-      j["id"]    = V2DeviceMetadata.id;
-      j["board"] = V2DeviceMetadata.board;
+      j["id"]    = metadata.firmware->id;
+      j["board"] = metadata.firmware->board;
       j["hash"]  = _firmware.hash;
       j["start"] = V2Base::Memory::Firmware::getStart();
       j["size"]  = V2Base::Memory::Firmware::getSize();

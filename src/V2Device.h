@@ -9,15 +9,15 @@
 class V2Device : public V2MIDI::Device {
 public:
   // Device metadata stored in a global variable.
-  struct Metadata {
+  struct MetadataFirmware {
     // Reverse-domain, unique device identifier (e.g. com.example.frobnicator).
-    const char* id;
+    const std::string_view id;
 
     // The version will always be presented to the user as a simple decimal number.
     const uint32_t version;
 
     // The fully-qualified board name.
-    const char* board;
+    const std::string_view board;
 
     // JSON object, it can be read from the offline firmware image. It needs to
     // be an embedded array not a pointer, to be able to retrieve its location
@@ -35,6 +35,8 @@ public:
 
     // Link to a website, including protocol prefix.
     const char* home{};
+
+    const MetadataFirmware* firmware{};
   } metadata;
 
   // Help texts, paragraphs are separated by newline.
@@ -200,19 +202,16 @@ private:
   bool readEEPROM(bool dryrun = false);
 };
 
-// Global variable, set with V2DEVICE_METADATA()
-extern __attribute__((section(".metadata"))) const V2Device::Metadata V2DeviceMetadata;
-
 // Store the image metadata in a JSON record which is located at the very end
 // of the firmware image, with a leading and trailing NUL character. The updater
 // can read it and verify that the update file matches the board information.
 // The "metadata" section requires explicit support from the linker script to
 // be effective.
-#define V2DEVICE_METADATA(_id, _version, _board)                                                                                           \
-  const V2Device::Metadata V2DeviceMetadata {                                                                                              \
-    _id, _version, _board,                                                                                                                 \
-      {"\0{\"com.versioduo.firmware\":{"                                                                                                   \
-       "\"id\":\"" _id "\","                                                                                                               \
-       "\"version\":" #_version ","                                                                                                        \
-       "\"board\":\"" _board "\"}}"}                                                                                                       \
+#define V2DeviceFirmware(_name, _id, _version, _board)                                                                                     \
+  const V2Device::MetadataFirmware _name __attribute__((section(".metadata"))) {                                                           \
+    .id{_id}, .version{_version}, .board{_board},                                                                                          \
+      .json{"\0{\"com.versioduo.firmware\":{"                                                                                              \
+            "\"id\":\"" _id "\","                                                                                                          \
+            "\"version\":" #_version ","                                                                                                   \
+            "\"board\":\"" _board "\"}}"}                                                                                                  \
   }
