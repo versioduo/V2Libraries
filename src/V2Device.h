@@ -9,19 +9,18 @@
 class V2Device : public V2MIDI::Device {
 public:
   // Device metadata stored in a global variable.
-  struct MetadataFirmware {
-    // Reverse-domain, unique device identifier (e.g. com.example.frobnicator).
+  struct Info {
+    // A unique device identifier; reverse domain name, or 32char 128bit hex id.
     const std::string_view id;
 
-    // The version will always be presented to the user as a simple decimal number.
-    const uint16_t version;
+    // A simple decimal version number.
+    const uint16_t version{};
 
     // The fully-qualified board name.
     const std::string_view board;
 
-    // JSON object, it can be read from the offline firmware image. It needs to
-    // be an embedded array not a pointer, to be able to retrieve its location
-    // and export the offset to the end of the file.
+    // JSON object, it can be read from the offline firmware image. It needs to be an
+    // array to find it at the end of the file.
     const char json[];
   };
 
@@ -35,8 +34,6 @@ public:
 
     // Link to a website, including protocol prefix.
     const char* home{};
-
-    const MetadataFirmware* firmware{};
   } metadata;
 
   // Help texts, paragraphs are separated by newline.
@@ -236,19 +233,23 @@ private:
 
 extern V2Device::Bootdata __attribute__((section(".noinit"))) V2Device::_bootdata;
 
-// Store the image metadata in a JSON record which is located at the very end
-// of the firmware image, with a leading and trailing NUL character. The updater
-// can read it and verify that the update file matches the board information.
-// The "metadata" section requires explicit support from the linker script to
-// be effective.
-#define V2DeviceFirmware(_name, _id, _version, _board)                                                                                     \
-  const V2Device::MetadataFirmware _name __attribute__((section(".metadata"))) {                                                           \
-    .id{_id}, .version{_version}, .board{_board},                                                                                          \
-      .json{"\0{\"com.versioduo.firmware\":{"                                                                                              \
-            "\"id\":\"" _id "\","                                                                                                          \
-            "\"version\":" #_version ","                                                                                                   \
-            "\"board\":\"" _board "\"}}"}                                                                                                  \
-  }
+// V2Device expects a global variable named 'Info'.
+//
+// The firmware information is stored as a JSON record placed at the very end of
+// the firmware image. The JSON string has a leading and trailing NUL character.
+// The updater can read it and verify that the update file matches the board
+// information. The ".metadata" section requires explicit support from the linker
+// script to be effective.
+namespace {
+  extern V2Device::Info __attribute__((section(".metadata"))) Info;
+}
+
+#define V2DeviceInfo(_id, _version, _board)                                                                                                \
+  .id{_id}, .version{_version}, .board{_board},                                                                                            \
+    .json{"\0{\"com.versioduo.firmware\":{"                                                                                                \
+          "\"id\":\"" _id "\","                                                                                                            \
+          "\"version\":" #_version ","                                                                                                     \
+          "\"board\":\"" _board "\"}}"}
 
 inline auto V2Device::readEEPROM(bool dryrun) -> bool {
   struct EEPROM* eeprom = (struct EEPROM*)V2Base::Memory::EEPROM::getStart();
@@ -361,7 +362,7 @@ inline auto V2Device::begin() -> void {
   const uint16_t pid = _eeprom.usb.pid > 0 ? _eeprom.usb.pid : usb.pid;
   usb.midi.setVIDPID(vid, pid + usb.ports.current - 1);
 
-  usb.midi.setVersion(metadata.firmware->version);
+  usb.midi.setVersion(::Info.version);
   usb.midi.attach();
 
   // Sleep mode IDLE, wait for interrupts.
@@ -567,7 +568,7 @@ inline auto V2Device::sendReply(V2MIDI::Port& port) -> void {
       jsonMeta["serial"] = serial;
     }
 
-    jsonMeta["version"] = metadata.firmware->version;
+    jsonMeta["version"] = ::Info.version;
     exportMetadata(jsonMeta);
   }
   {
@@ -608,8 +609,8 @@ inline auto V2Device::sendReply(V2MIDI::Port& port) -> void {
       if (system.configure)
         j["configure"] = system.configure;
 
-      j["id"]    = metadata.firmware->id;
-      j["board"] = metadata.firmware->board;
+      j["id"]    = ::Info.id;
+      j["board"] = ::Info.board;
       j["hash"]  = _firmware.hash;
       j["start"] = V2Base::Memory::Firmware::getStart();
       j["size"]  = V2Base::Memory::Firmware::getSize();
