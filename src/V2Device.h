@@ -180,7 +180,7 @@ private:
     // The additional MIDI ports to export to the host.
     struct {
       struct {
-        bool enableAccess;
+        bool enableAccess; // [[indeterminate]];
       } ports;
     } usb;
 
@@ -196,10 +196,10 @@ private:
 
     // The device-specific part.
     struct {
-      uint16_t magic;
-      uint16_t version;
-      uint32_t size;
-    } local{};
+      uint16_t magic{};
+      uint16_t version{};
+      uint32_t size{};
+    } local;
 
     struct {
       // The custom name of the USB device.
@@ -216,12 +216,12 @@ private:
   } _eeprom;
 
   struct {
-    uint32_t id;
-  } _boot{};
+    uint32_t id{};
+  } _boot;
 
   struct {
-    char hash[41];
-  } _firmware{};
+    char hash[41]{};
+  } _firmware;
 
   V2Base::Timer::Periodic _ledTimer;
 
