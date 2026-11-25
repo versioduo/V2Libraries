@@ -56,7 +56,7 @@ public:
     _current     = 0;
 
     for (uint8_t i = 0; i < nPorts; i++) {
-      _ports[i] = {.measure{.resistance{-1}, .voltage{-1}}};
+      _ports[i] = {.measure{.resistance{-1}, .ratio{-1}}};
       setPWMDuty(i, 0);
       updateLED(i);
     }
@@ -314,7 +314,7 @@ protected:
   virtual auto setPower(PowerState state) -> bool           = 0;
   virtual auto readVoltage() -> float                       = 0;
   virtual auto readCurrent() -> float                       = 0;
-  virtual auto readResistanceVoltage() -> float             = 0;
+  virtual auto readResistanceRatio() -> float               = 0;
   virtual auto setPWMDuty(uint8_t port, float duty) -> void = 0;
 
   enum class LEDMode {
@@ -394,7 +394,7 @@ private:
       float resistance{};
 
       // Storage of the raw measurement to implements a low-pass filter.
-      float voltage{};
+      float ratio{};
     } measure;
 
     // Current pulse parameters.
@@ -413,37 +413,33 @@ private:
   } _ports[nPorts];
 
   auto measureResistance() -> void {
-    // When the power supply is switched-off, a single port can be switched-on,
-    // and 3.3V are connected to a 100Ω voltage divider. It measures the
-    // resistance of the connected load.
-    //
-    // Voltage divider R1 = 100Ω, Vin = 3.3V, R2 has a diode with a drop of ~0.3V:
-    //   ∞ = Vout 3.3V
-    //  0Ω = Vout 0.3V
-    const float voltage{readResistanceVoltage()};
+    auto& measure{_ports[_probe.port].measure};
 
-    // Start with the current measurement, do not signal a short-circuit after a reset.
-    if (_ports[_probe.port].measure.voltage < 0.f)
-      _ports[_probe.port].measure.voltage = voltage;
+    {
+      // When the power supply is switched-off, a single port can be switched-on,
+      // and 3.3V are connected to a 100Ω voltage divider. It measures the
+      // resistance of the connected load.
+      float ratio{readResistanceRatio()};
 
-    // Low-pass filter.
-    const float alpha{0.3};
-    _ports[_probe.port].measure.voltage *= 1.f - alpha;
-    _ports[_probe.port].measure.voltage += voltage * alpha;
+      // Start with the current measurement, do not signal a short-circuit after a reset.
+      if (measure.ratio < 0.f)
+        measure.ratio = ratio;
 
-    // Calculate voltage divider, R2 resistance.
-    const float r1{100};
-    const float vIn{3.3};
-    const float vOut{_ports[_probe.port].measure.voltage};
-    // Account for the ~0.3V drop of the R2 diode.
-    _ports[_probe.port].measure.resistance = ((vOut - 0.3f) * r1) / (vIn - vOut);
+      // Low-pass filter.
+      float alpha{0.3};
+      measure.ratio *= 1.f - alpha;
+      measure.ratio += ratio * alpha;
+    }
+
+    // Calculate the voltage divider's R2 resistance.
+    measure.resistance = (100.f * measure.ratio) / (1.f - measure.ratio);
 
     // Not connected or resistance too high to be useful.
     CoilState state{};
-    if (_ports[_probe.port].measure.resistance > _config.resistance.max) {
+    if (measure.resistance > _config.resistance.max) {
       state = CoilState::NotConnected;
 
-    } else if (_ports[_probe.port].measure.resistance < _config.resistance.min) {
+    } else if (measure.resistance < _config.resistance.min) {
       // Short-circuit or resistance too low.
       state = CoilState::ShortCircuit;
 
@@ -452,9 +448,9 @@ private:
     }
 
     // Wakeup the LED display.
-    if (state != _ports[_probe.port].measure.state) {
-      _ports[_probe.port].measure.state = state;
-      _timeoutUsec                      = V2Base::getUsec();
+    if (state != measure.state) {
+      measure.state = state;
+      _timeoutUsec  = V2Base::getUsec();
     }
 
     // Set the LED brightness according to the measured resistance.
